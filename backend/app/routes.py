@@ -2,7 +2,7 @@ from datetime import date, datetime, time, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session as DBSession
 
@@ -373,6 +373,8 @@ class TaskIn(BaseModel):
     column_id: int | None = None
     duration_minutes: int | None = None
     deadline: date | None = None
+    priority: int = Field(default=0, ge=0, le=3)
+    position: int = 0
 
 
 class TaskPatch(BaseModel):
@@ -383,6 +385,7 @@ class TaskPatch(BaseModel):
     duration_minutes: int | None = None
     deadline: date | None = None
     position: int | None = None
+    priority: int | None = Field(default=None, ge=0, le=3)
 
 
 class TaskOut(BaseModel):
@@ -397,6 +400,7 @@ class TaskOut(BaseModel):
     duration_minutes: int | None
     deadline: date | None
     position: int
+    priority: int
 
 
 def _task_out(task: Task, columns: dict[int, Column]) -> dict:
@@ -412,6 +416,7 @@ def _task_out(task: Task, columns: dict[int, Column]) -> dict:
         "duration_minutes": task.duration_minutes,
         "deadline": task.deadline,
         "position": task.position,
+        "priority": task.priority or 0,
     }
 
 
@@ -493,6 +498,18 @@ class TaskBlockOut(TaskBlockIn):
     id: int
 
 
+@router.get("/task-blocks", response_model=list[TaskBlockOut])
+def list_task_blocks(start: date | None = None, end: date | None = None,
+                     db: DBSession = Depends(get_db)):
+    """All task blocks, optionally only those overlapping start..end (inclusive dates)."""
+    query = db.query(TaskBlock)
+    if start is not None:
+        query = query.filter(TaskBlock.end_at > datetime.combine(start, time.min))
+    if end is not None:
+        query = query.filter(TaskBlock.start_at < datetime.combine(end + timedelta(days=1), time.min))
+    return query.order_by(TaskBlock.start_at).all()
+
+
 @router.post("/task-blocks", response_model=TaskBlockOut, status_code=201)
 def create_task_block(body: TaskBlockIn, db: DBSession = Depends(get_db)):
     task = _get_or_404(db, Task, body.task_id)
@@ -570,6 +587,24 @@ def list_habits(start: date, end: date, db: DBSession = Depends(get_db)):
     """Completions are counted between start and end (inclusive)."""
     habits = db.query(Habit).filter(Habit.archived.is_(False)).order_by(Habit.id).all()
     return [_habit_out(db, h, start, end) for h in habits]
+
+
+class HabitLogOut(BaseModel):
+    habit_id: int
+    logged_on: date
+    count: int
+
+
+@router.get("/habits/history", response_model=list[HabitLogOut])
+def habit_history(start: date, end: date, db: DBSession = Depends(get_db)):
+    """Per-day completion counts between start and end (inclusive), for streaks and charts."""
+    logs = (
+        db.query(HabitLog)
+        .filter(HabitLog.logged_on >= start, HabitLog.logged_on <= end, HabitLog.count > 0)
+        .order_by(HabitLog.logged_on)
+        .all()
+    )
+    return [HabitLogOut(habit_id=l.habit_id, logged_on=l.logged_on, count=l.count) for l in logs]
 
 
 @router.post("/habits", response_model=HabitOut, status_code=201)

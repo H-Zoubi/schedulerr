@@ -1,148 +1,181 @@
-import { FormEvent, useEffect, useState } from "react";
-import { api, Habit, patch, post } from "../api";
-import { addDays, isoDate, weekStartOf } from "../dates";
+import { FormEvent, memo, useMemo, useState } from "react";
+import { Habit } from "../api";
+import { Anchor, anchorOf, Dialog, Empty, IconButton, Menu, Segmented, SheetHeader } from "../components/primitives";
+import { Icon } from "../components/Icon";
+import { Ring } from "./Today";
+import { archiveHabit, createHabit, logHabit, updateHabit, useData } from "../store";
+import { countIn, habitWindow, logIndex, streak } from "../lib/derive";
+import { addDays, addDaysIso, isoDate, parseDate, todayIso, weekStartOf } from "../dates";
+import { usePrefs } from "../lib/prefs";
 
-// Progress window: the current week (Sunday to Saturday) or today, depending on the habit's period.
-function windowFor(habit: Habit): { start: string; end: string } {
-  const today = new Date();
-  if (habit.target_period === "day") return { start: isoDate(today), end: isoDate(today) };
-  const weekStart = weekStartOf(today);
-  return { start: isoDate(weekStart), end: isoDate(addDays(weekStart, 6)) };
-}
+const HEAT_WEEKS = 18;
 
 export function Habits() {
-  const [habits, setHabits] = useState<Habit[]>([]);
-  const [title, setTitle] = useState("");
-  const [target, setTarget] = useState(3);
-  const [period, setPeriod] = useState<"day" | "week">("week");
-  const [showForm, setShowForm] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  const habits = useData((s) => s.habits);
+  const logs = useData((s) => s.habitLogs);
+  const idx = useMemo(() => logIndex(logs), [logs]);
+  const [editing, setEditing] = useState<Habit | "new" | null>(null);
 
-  // Each habit is counted in its own window: today for daily habits, this week otherwise.
-  async function load() {
-    try {
-      const today = isoDate(new Date());
-      const weekStart = weekStartOf(new Date());
-      const week = `start=${isoDate(weekStart)}&end=${isoDate(addDays(weekStart, 6))}`;
-      const day = `start=${today}&end=${today}`;
-      const [weekly, daily] = await Promise.all([
-        api<Habit[]>(`/api/habits?${week}`),
-        api<Habit[]>(`/api/habits?${day}`),
-      ]);
-      setHabits(weekly.map((h) => (h.target_period === "day" ? daily.find((d) => d.id === h.id)! : h)));
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load habits");
-    } finally {
-      setLoaded(true);
-    }
-  }
-
-  useEffect(() => {
-    load();
-  }, []);
-
-  async function add(e: FormEvent) {
-    e.preventDefault();
-    if (!title.trim()) return;
-    await post("/api/habits", { title: title.trim(), target_count: target, target_period: period });
-    setTitle("");
-    setShowForm(false);
-    load();
-  }
-
-  async function log(habit: Habit, delta: 1 | -1) {
-    if (delta === -1 && habit.done === 0) return;
-    const { start, end } = windowFor(habit);
-    await post(`/api/habits/${habit.id}/log?start=${start}&end=${end}`, {
-      logged_on: isoDate(new Date()),
-      delta,
-    });
-    load();
-  }
-
-  async function archive(habit: Habit) {
-    if (!confirm(`Archive "${habit.title}"? It will stop showing here.`)) return;
-    await patch(`/api/habits/${habit.id}`, { archived: true });
-    load();
-  }
-
-  const active = habits.filter((h) => !h.archived);
-  const metCount = active.filter((h) => h.done >= h.target_count).length;
+  const onTrack = habits.filter((h) => {
+    const w = habitWindow(h);
+    return countIn(idx.get(h.id), w.start, w.end) >= h.target_count;
+  }).length;
 
   return (
-    <section>
-      <div className="page-head">
-        <div className="titles">
+    <div className="page habits-page">
+      <header className="page-head">
+        <div>
           <h1>Habits</h1>
-          <div className="subtitle">
-            {loaded ? `${metCount} of ${active.length} on target` : "Loading…"}
-          </div>
+          <p className="page-sub">{habits.length ? `${onTrack} of ${habits.length} on target` : "Small things, done often"}</p>
         </div>
-        <button className={showForm ? "" : "primary"} onClick={() => setShowForm(!showForm)}>
-          {showForm ? "Cancel" : "+ New habit"}
+        <button className="btn primary sm" onClick={() => setEditing("new")}><Icon name="plus" size={15} /> New habit</button>
+      </header>
+
+      {habits.length === 0 ? (
+        <Empty icon="habits" title="No habits yet">
+          Start with one small thing — “Walk 3× a week” or “Read daily”.
+          <div><button className="btn primary sm" onClick={() => setEditing("new")}>Create a habit</button></div>
+        </Empty>
+      ) : (
+        <div className="habit-grid">
+          {habits.map((h) => <HabitCard key={h.id} habit={h} days={idx.get(h.id)} onEdit={() => setEditing(h)} />)}
+        </div>
+      )}
+
+      {editing && <HabitDialog habit={editing === "new" ? undefined : editing} onClose={() => setEditing(null)} />}
+    </div>
+  );
+}
+
+const HabitCard = memo(function HabitCard({ habit, days, onEdit }: {
+  habit: Habit; days?: Map<string, number>; onEdit: () => void;
+}) {
+  const { weekStart } = usePrefs();
+  const [menu, setMenu] = useState<Anchor | null>(null);
+  const today = todayIso();
+  const w = habitWindow(habit);
+  const done = countIn(days, w.start, w.end);
+  const met = done >= habit.target_count;
+  const s = streak(habit, days);
+  const week = Array.from({ length: 7 }, (_, i) => isoDate(addDays(weekStartOf(new Date(), weekStart), i)));
+  const todayCount = days?.get(today) ?? 0;
+
+  return (
+    <article className={"habit-card card" + (met ? " met" : "")}>
+      <div className="habit-top">
+        <div className="habit-info">
+          <h2>{habit.title}</h2>
+          <p className="muted small">
+            {habit.target_count}× {habit.target_period === "day" ? "a day" : "a week"}
+            {s > 0 && <span className="streak"><Icon name="flame" size={13} /> {s} {habit.target_period === "day" ? "day" : "week"}{s === 1 ? "" : "s"}</span>}
+          </p>
+        </div>
+        <IconButton icon="more" label="Habit options" onClick={(e) => setMenu(anchorOf(e.currentTarget))} />
+      </div>
+
+      <div className="habit-mid">
+        <button className="habit-log" onClick={() => logHabit(habit.id, today, 1)} aria-label={`Log ${habit.title}`}>
+          <Ring value={Math.min(100, (done / habit.target_count) * 100)} size={64} done={met} />
+          <span className="habit-log-count">{met ? "" : `${done}/${habit.target_count}`}</span>
+        </button>
+        <div className="habit-week">
+          {week.map((d) => {
+            const n = days?.get(d) ?? 0;
+            const future = d > today;
+            return (
+              <button key={d} disabled={future}
+                className={"wk-day" + (n > 0 ? " on" : "") + (d === today ? " today" : "")}
+                title={`${parseDate(d).toDateString()}: ${n} — click to log, right-click to remove`}
+                onClick={() => logHabit(habit.id, d, 1)}
+                onContextMenu={(e) => { e.preventDefault(); logHabit(habit.id, d, -1); }}>
+                <span className="wk-name">{parseDate(d).toLocaleDateString(undefined, { weekday: "narrow" })}</span>
+                <span className="wk-dot">{n > 1 ? n : n === 1 ? <Icon name="check" size={12} strokeWidth={3} /> : ""}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <Heatmap days={days} weekStart={weekStart} />
+
+      <div className="habit-actions">
+        <button className="btn sm ghost" disabled={todayCount === 0} onClick={() => logHabit(habit.id, today, -1)}>
+          <Icon name="undo" size={14} /> Undo today
+        </button>
+        <button className="btn sm primary" onClick={() => logHabit(habit.id, today, 1)}>
+          <Icon name="plus" size={14} /> Log
         </button>
       </div>
 
-      {error && <div className="banner" role="alert">{error}</div>}
-
-      {showForm && (
-        <form className="card form habit-form" style={{ marginBottom: 16 }} onSubmit={add}>
-          <label>Habit
-            <input placeholder="Walk, read, stretch…" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus required />
-          </label>
-          <label>Target
-            <input type="number" min={1} value={target} onChange={(e) => setTarget(Number(e.target.value))} />
-          </label>
-          <label>Per
-            <select value={period} onChange={(e) => setPeriod(e.target.value as "day" | "week")}>
-              <option value="week">week</option>
-              <option value="day">day</option>
-            </select>
-          </label>
-          <button className="primary">Add habit</button>
-        </form>
+      {menu && (
+        <Menu anchor={menu} onClose={() => setMenu(null)} items={[
+          { label: "Edit", icon: "edit", onSelect: onEdit },
+          { label: "Archive", icon: "trash", danger: true, onSelect: () => archiveHabit(habit) },
+        ]} />
       )}
+    </article>
+  );
+});
 
-      {loaded && active.length === 0 && (
-        <div className="empty">
-          <strong>No habits yet</strong>
-          Start with one small thing you want to do each week.
+function Heatmap({ days, weekStart }: { days?: Map<string, number>; weekStart: 0 | 1 }) {
+  const today = todayIso();
+  const start = isoDate(addDays(weekStartOf(new Date(), weekStart), -7 * (HEAT_WEEKS - 1)));
+  const cols = Array.from({ length: HEAT_WEEKS }, (_, w) =>
+    Array.from({ length: 7 }, (_, d) => addDaysIso(start, w * 7 + d)));
+  return (
+    <div className="heatmap" aria-label="Last weeks of activity">
+      {cols.map((col, i) => (
+        <div key={i} className="heat-col">
+          {col.map((d) => {
+            const n = days?.get(d) ?? 0;
+            return <span key={d} className={"heat-cell l" + Math.min(n, 3) + (d > today ? " future" : "")} title={`${d}: ${n}`} />;
+          })}
         </div>
-      )}
+      ))}
+    </div>
+  );
+}
 
-      <div className="habit-grid">
-        {active.map((h) => {
-          const met = h.done >= h.target_count;
-          const pct = Math.min(100, Math.round((h.done / h.target_count) * 100));
-          return (
-            <div key={h.id} className="card habit-card">
-              <div className="habit-top">
-                <div className="grow">
-                  <div className="name">{h.title}</div>
-                  <div className="meta">
-                    {h.target_period === "day" ? "Daily" : "Weekly"} · target {h.target_count}
-                    {met && " · met"}
-                  </div>
-                </div>
-                <button className="icon" onClick={() => archive(h)} aria-label={`Archive ${h.title}`}>✕</button>
-              </div>
-              <div className="habit-bottom">
-                <div className={"progress" + (met ? " met" : "")} role="progressbar"
-                  aria-valuemin={0} aria-valuemax={h.target_count} aria-valuenow={h.done}>
-                  <span style={{ width: `${pct}%` }} />
-                </div>
-                <span className="progress-count">{h.done} / {h.target_count}</span>
-              </div>
-              <div className="row">
-                <button onClick={() => log(h, -1)} disabled={h.done === 0} aria-label={`Undo ${h.title}`}>Undo</button>
-                <button className="primary btn-log grow" onClick={() => log(h, 1)} aria-label={`Log ${h.title}`}>+1</button>
-              </div>
+function HabitDialog({ habit, onClose }: { habit?: Habit; onClose: () => void }) {
+  const [title, setTitle] = useState(habit?.title ?? "");
+  const [count, setCount] = useState(habit?.target_count ?? 3);
+  const [period, setPeriod] = useState<"day" | "week">(habit?.target_period ?? "week");
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    const t = title.trim();
+    if (!t) return;
+    if (habit) updateHabit(habit.id, { title: t, target_count: count, target_period: period });
+    else createHabit(t, count, period);
+    onClose();
+  }
+
+  return (
+    <Dialog onClose={onClose} label={habit ? "Edit habit" : "New habit"}>
+      <SheetHeader title={habit ? "Edit habit" : "New habit"} onClose={onClose} />
+      <form className="form" onSubmit={submit}>
+        <label className="field">
+          <span>Habit</span>
+          <input autoFocus value={title} placeholder="Walk, read, stretch…" onChange={(e) => setTitle(e.target.value)} />
+        </label>
+        <div className="field">
+          <span>Target</span>
+          <div className="row-gap">
+            <div className="stepper">
+              <button type="button" onClick={() => setCount(Math.max(1, count - 1))} aria-label="Fewer">−</button>
+              <span>{count}×</span>
+              <button type="button" onClick={() => setCount(Math.min(50, count + 1))} aria-label="More">+</button>
             </div>
-          );
-        })}
-      </div>
-    </section>
+            <Segmented label="Period" value={period} onChange={setPeriod}
+              options={[{ value: "day", label: "per day" }, { value: "week", label: "per week" }]} />
+          </div>
+        </div>
+        <div className="form-actions">
+          <span className="grow" />
+          <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
+          <button className="btn primary" disabled={!title.trim()}>{habit ? "Save" : "Create habit"}</button>
+        </div>
+      </form>
+    </Dialog>
   );
 }

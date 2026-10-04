@@ -12,9 +12,9 @@ type Theme = "system" | "light" | "dark";
 type Sidebar = "open" | "collapsed";
 type User = { id: number; email: string };
 
-const TAB_KEY = "scheduler.tab";
-const THEME_KEY = "scheduler.theme";
-const SIDEBAR_KEY = "scheduler.sidebar";
+const TAB_KEY = "schedulerr.tab";
+const THEME_KEY = "schedulerr.theme";
+const SIDEBAR_KEY = "schedulerr.sidebar";
 
 // Local preferences only. Storage can be blocked (private mode), so every access is guarded.
 function readStored<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
@@ -151,7 +151,7 @@ export function App() {
       <aside className={"sidebar" + (sidebar === "collapsed" ? " collapsed" : "")} aria-label="Main">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true">S</span>
-          <span className="brand-text">Scheduler</span>
+          <span className="brand-text">Schedulerr</span>
           <button className="icon sidebar-toggle"
             aria-label={sidebar === "open" ? "Collapse sidebar" : "Expand sidebar"}
             aria-expanded={sidebar === "open"}

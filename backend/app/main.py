@@ -19,7 +19,7 @@ from .security import OriginCheck, login_keys, login_limiter
 from . import notifications
 from .db import SessionLocal
 
-app = FastAPI(title="Scheduler API")
+app = FastAPI(title="Schedulerr API")
 app.add_middleware(OriginCheck)
 app.include_router(routes.router, prefix="/api")
 

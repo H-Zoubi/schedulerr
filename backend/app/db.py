@@ -5,7 +5,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 DATABASE_URL = os.environ.get(
-    "DATABASE_URL", "postgresql+psycopg://scheduler:scheduler@localhost:5432/scheduler"
+    "DATABASE_URL", "postgresql+psycopg://schedulerr:scheduler@localhost:5432/schedulerr"
 )
 
 engine = create_engine(DATABASE_URL)

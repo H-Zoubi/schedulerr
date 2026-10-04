@@ -1,4 +1,4 @@
-# agoodscheduler
+# schedulerr
 
 A self-hosted personal planner: a week calendar, time blocks, events, tasks with time blocks, flexible habits, and a Kanban board. Mobile-first, works on desktop.
 

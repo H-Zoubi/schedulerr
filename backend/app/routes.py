@@ -618,7 +618,7 @@ def notification_status():
 @router.post("/notifications/test")
 def notification_test():
     try:
-        used = notifications.send("Scheduler", "Test notification: reminders are working.", priority=3)
+        used = notifications.send("Schedulerr", "Test notification: reminders are working.", priority=3)
     except Exception as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Could not send: {exc}")
     if not used:

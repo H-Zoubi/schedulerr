@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session as DBSession
 from .db import get_db
 from .models import Session, User
 
-COOKIE_NAME = "scheduler_session"
+COOKIE_NAME = "schedulerr_session"
 SESSION_DAYS = 30
 
 # scrypt parameters (N=2**15, r=8, p=1) follow OWASP's current minimum recommendation.

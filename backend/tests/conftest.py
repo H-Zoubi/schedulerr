@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # Point the app at a throwaway SQLite file before anything imports app.db.
-_db_dir = tempfile.mkdtemp(prefix="scheduler-tests-")
+_db_dir = tempfile.mkdtemp(prefix="schedulerr-tests-")
 os.environ["DATABASE_URL"] = f"sqlite:///{Path(_db_dir, 'test.db').as_posix()}"
 os.environ.setdefault("NOTIFICATIONS_WORKER", "0")
 

@@ -1,4 +1,4 @@
-# Personal Self-Hosted Scheduler — Plan
+# Schedulerr — Plan
 
 (Original plan, kept here as the reference document. Decisions made since are recorded in README.md.)
 

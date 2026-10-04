@@ -4,7 +4,7 @@ Usage (inside the api container or a local venv):
     python create_user.py you@example.com
 
 The password is read from a hidden prompt. For scripted setup, set
-SCHEDULER_PASSWORD in the environment instead; it is never taken from the command line.
+SCHEDULERR_PASSWORD in the environment instead; it is never taken from the command line.
 """
 
 import getpass
@@ -22,7 +22,7 @@ def main() -> None:
         sys.exit("Usage: python create_user.py you@example.com")
     email = sys.argv[1].lower()
 
-    password = os.environ.get("SCHEDULER_PASSWORD")
+    password = os.environ.get("SCHEDULERR_PASSWORD")
     if password is None:
         password = getpass.getpass("Password: ")
         if password != getpass.getpass("Repeat password: "):

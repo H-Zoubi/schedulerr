@@ -2,14 +2,14 @@ services:
   db:
     image: postgres:16
     environment:
-      POSTGRES_USER: scheduler
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scheduler}
-      POSTGRES_DB: scheduler
+      POSTGRES_USER: schedulerr
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-schedulerr}
+      POSTGRES_DB: schedulerr
     volumes:
       - pgdata:/var/lib/postgresql/data
     # Not published to the host: only the API container talks to the database.
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U scheduler -d scheduler"]
+      test: ["CMD-SHELL", "pg_isready -U schedulerr -d schedulerr"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -18,7 +18,7 @@ services:
   api:
     build: ./backend
     environment:
-      DATABASE_URL: postgresql+psycopg://scheduler:${POSTGRES_PASSWORD:-scheduler}@db:5432/scheduler
+      DATABASE_URL: postgresql+psycopg://schedulerr:${POSTGRES_PASSWORD:-schedulerr}@db:5432/schedulerr
       # Origins allowed to make changes. Add your Cloudflare Tunnel address here.
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080,http://localhost:5173}
       # The timezone the app's times are in. Reminders are compared against this.

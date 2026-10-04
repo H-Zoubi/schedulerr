@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session as DBSession
 
 from .models import Event, Reminder, ReminderSent, Task, TaskBlock, TimeBlock
 
-log = logging.getLogger("scheduler.notifications")
+log = logging.getLogger("schedulerr.notifications")
 
 KINDS = ("event", "task_block", "time_block")
 

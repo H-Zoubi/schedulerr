@@ -27,7 +27,7 @@ export function Login({ onLogin }: { onLogin: (user: User) => void }) {
       <form className="login card" onSubmit={submit}>
         <div className="brand">
           <span className="brand-mark" aria-hidden="true">S</span>
-          Scheduler
+          Schedulerr
         </div>
         <p className="sub">Plan your week, one block at a time.</p>
 

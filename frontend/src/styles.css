@@ -772,6 +772,7 @@ select.btn { padding-right: 26px; min-height: 0; }
   border-left-style: solid;
 }
 .ev.kind-task_block { background: var(--surface); border-color: color-mix(in srgb, var(--c) 35%, var(--border)); border-left-color: var(--c); box-shadow: var(--shadow-xs); color: var(--text); }
+.ev.locked { cursor: pointer; }
 .ev.done { opacity: 0.55; }
 .ev.done .ev-title { text-decoration: line-through; }
 .ev-inner { display: flex; gap: 6px; align-items: flex-start; height: 100%; }
@@ -850,6 +851,7 @@ select.btn { padding-right: 26px; min-height: 0; }
 .m-item.done .m-title { text-decoration: line-through; opacity: 0.6; }
 .m-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--c); flex: none; }
 .m-item.kind-time .m-dot { border-radius: 2px; }
+.m-item.kind-time { cursor: pointer; }
 .m-time { color: var(--text-3); font-variant-numeric: tabular-nums; flex: none; }
 .m-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 520; }
 .m-more { font-size: 11px; color: var(--text-3); text-align: left; padding: 0 5px; font-weight: 600; }

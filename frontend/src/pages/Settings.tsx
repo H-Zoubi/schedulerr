@@ -57,7 +57,7 @@ export function Settings({ user, onLogout }: { user: User; onLogout: () => void 
         <h2>Calendar</h2>
         <Row label="Week starts on">
           <Segmented label="Week starts on" value={String(p.weekStart) as "0" | "1"} onChange={(v) => setPref("weekStart", Number(v) as 0 | 1)}
-            options={[{ value: "1", label: "Monday" }, { value: "0", label: "Sunday" }]} />
+            options={[{ value: "0", label: "Sunday" }, { value: "1", label: "Monday" }]} />
         </Row>
         <Row label="Time format">
           <Segmented label="Time format" value={p.clock} onChange={(v) => setPref("clock", v)}
@@ -77,6 +77,11 @@ export function Settings({ user, onLogout }: { user: User; onLogout: () => void 
               {HOURS.slice(1).filter((m) => m > p.workStart).map((m) => <option key={m} value={m}>{m === 1440 ? "24:00" : timeString(m)}</option>)}
             </select>
           </div>
+        </Row>
+        <Row label="Drag routines" hint="Routines repeat every week, so they stay put unless you allow dragging. You can always change their time from the item’s details.">
+          <Segmented label="Drag routines" value={p.routinesDraggable ? "on" : "off"}
+            onChange={(v) => setPref("routinesDraggable", v === "on")}
+            options={[{ value: "off", label: "Locked" }, { value: "on", label: "Draggable" }]} />
         </Row>
         <Row label="Grid density" hint="Tip: hold Ctrl or ⌘ and scroll over the calendar to zoom.">
           <Segmented label="Density" value={p.hourHeight <= 40 ? "compact" : p.hourHeight >= 72 ? "roomy" : "normal"}

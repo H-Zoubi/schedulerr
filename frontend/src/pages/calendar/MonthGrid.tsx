@@ -6,6 +6,7 @@ import { Task } from "../../api";
 import { addDaysIso, backendWeekday, daysBetween, fmtTime, parseDate, todayIso, timeString, atMinutes } from "../../dates";
 import { store, updateEvent, updateTaskBlock, updateTimeBlock } from "../../store";
 import { toast } from "../../lib/toast";
+import { prefs } from "../../lib/prefs";
 import { openTask } from "../../lib/ui";
 
 const MAX_VISIBLE = 3;
@@ -40,6 +41,7 @@ export function MonthGrid({ days, month, items, dueByDay, selectedKey, onSelect,
       const d = drag.current;
       if (!d) return;
       if (!d.active) {
+        if (d.item.kind === "time" && !prefs.get().routinesDraggable) return;
         if (ev.pointerType === "touch" || Math.hypot(ev.clientX - d.startX, ev.clientY - d.startY) < 5) return;
         d.active = true;
         setDragKey(d.item.key);

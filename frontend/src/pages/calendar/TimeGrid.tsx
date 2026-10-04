@@ -372,6 +372,10 @@ export function TimeGrid({
               <span className="tg-now-label" style={{ top: (now / 60) * hourHeight }}>{fmtTime(now, true)}</span>
             )}
           </div>
+          {/* Faint line across every day at the current time; today's column draws the solid one. */}
+          {days.includes(today) && days.length > 1 && (
+            <div className="tg-now-all" style={{ top: (now / 60) * hourHeight }} aria-hidden="true" />
+          )}
           {days.map((d) => (
             <DayColumn key={d} date={d} items={items.get(d)} layout={layouts.get(d)!} hourHeight={hourHeight}
               isToday={d === today} now={d === today ? now : -1}

@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/api.ts","./src/dates.ts","./src/main.tsx","./src/components/editors.tsx","./src/components/modal.tsx","./src/components/reminderpicker.tsx","./src/pages/habits.tsx","./src/pages/inbox.tsx","./src/pages/kanban.tsx","./src/pages/login.tsx","./src/pages/today.tsx","./src/pages/week.tsx","./vite.config.ts"],"version":"5.9.3"}

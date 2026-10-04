@@ -12,7 +12,7 @@ import {
 import {
   scheduleTask, store, toggleTaskDone, updateEvent, updateTaskBlock, updateTimeBlock,
 } from "../../store";
-import { prefs, setPref } from "../../lib/prefs";
+import { prefs, setPref, usePrefs } from "../../lib/prefs";
 import { toast } from "../../lib/toast";
 import { openTask } from "../../lib/ui";
 
@@ -42,6 +42,7 @@ type Gesture = {
   lastY: number;
   timer?: number;
   downAt: number;
+  locked?: boolean;   // a routine that can be opened but not dragged
 };
 
 export type DragApi = { startTask: (task: Task, e: RPointerEvent) => void };
@@ -238,7 +239,8 @@ export function TimeGrid({
     };
     gesture.current = state;
     if (e.pointerType !== "touch") e.preventDefault();
-    if (immediate) begin(state);
+    if (state.locked) { /* click or tap only */ }
+    else if (immediate) begin(state);
     else if (e.pointerType === "touch") {
       window.addEventListener("touchmove", preventTouchScroll, { passive: false });
       state.timer = window.setTimeout(() => { if (gesture.current === state) begin(state); }, LONG_PRESS_MS);
@@ -251,6 +253,11 @@ export function TimeGrid({
       cur.lastY = ev.clientY;
       const dist = Math.hypot(ev.clientX - cur.startX, ev.clientY - cur.startY);
       if (!cur.active) {
+        if (cur.locked) {
+          // Locked routines never drag; a real move means the pointer went elsewhere.
+          if (dist > 10) cleanup(false);
+          return;
+        }
         if (cur.pointerType === "touch") {
           // Finger moved before the long press: it's a scroll, not a drag.
           if (dist > 8) cleanup(false);
@@ -301,9 +308,11 @@ export function TimeGrid({
 
   const onItemDown = useCallback((e: RPointerEvent, item: CalItem, resize: boolean) => {
     e.stopPropagation();
+    const locked = item.kind === "time" && !prefs.get().routinesDraggable;
+    if (locked && resize) return;
     const h = hit(e.clientX, e.clientY);
     startGesture(e, {
-      mode: resize ? "resize" : "move", item, duration: item.end - item.start,
+      mode: resize ? "resize" : "move", item, duration: item.end - item.start, locked,
       grab: h ? h.minutes - item.start : 0, anchorMin: item.start, anchorDate: item.date,
     }, resize && e.pointerType !== "touch");
   }, [hit, startGesture]);
@@ -331,6 +340,7 @@ export function TimeGrid({
   }, [days, items]);
 
   const dragKey = ghost?.key && gesture.current?.active ? ghost.key : null;
+  const routinesLocked = !usePrefs((p) => p.routinesDraggable);
   const totalHeight = 24 * hourHeight;
   const hours = useMemo(() => Array.from({ length: 24 }, (_, h) => h), []);
 
@@ -366,7 +376,7 @@ export function TimeGrid({
             <DayColumn key={d} date={d} items={items.get(d)} layout={layouts.get(d)!} hourHeight={hourHeight}
               isToday={d === today} now={d === today ? now : -1}
               ghost={ghost && ghost.date === d ? ghost : creating && creating.date === d ? { ...creating, title: "", color: "var(--accent)", kind: "new" } : null}
-              dragKey={dragKey} selectedKey={selectedKey}
+              dragKey={dragKey} selectedKey={selectedKey} routinesLocked={routinesLocked}
               colRef={(el) => { if (el) colRefs.current.set(d, el); else colRefs.current.delete(d); }}
               onBodyDown={onBodyDown} onItemDown={onItemDown} />
           ))}
@@ -424,7 +434,7 @@ const DayHeader = memo(function DayHeader({ date, today, due, onDayClick, onDueD
 });
 
 const DayColumn = memo(function DayColumn({
-  date, items, layout, hourHeight, isToday, now, ghost, dragKey, selectedKey, colRef, onBodyDown, onItemDown,
+  date, items, layout, hourHeight, isToday, now, ghost, dragKey, selectedKey, routinesLocked, colRef, onBodyDown, onItemDown,
 }: {
   date: string;
   items?: CalItem[];
@@ -435,6 +445,7 @@ const DayColumn = memo(function DayColumn({
   ghost: Ghost | null;
   dragKey: string | null;
   selectedKey: string | null;
+  routinesLocked: boolean;
   colRef: (el: HTMLDivElement | null) => void;
   onBodyDown: (e: RPointerEvent<HTMLDivElement>, date: string) => void;
   onItemDown: (e: RPointerEvent, item: CalItem, resize: boolean) => void;
@@ -451,7 +462,8 @@ const DayColumn = memo(function DayColumn({
         const l = layout.get(it.key) ?? { lane: 0, lanes: 1 };
         return (
           <EventBlock key={it.key} item={it} lane={l.lane} lanes={l.lanes} hourHeight={hourHeight}
-            dragging={dragKey === it.key} selected={selectedKey === it.key} onDown={onItemDown} />
+            dragging={dragKey === it.key} selected={selectedKey === it.key}
+            locked={routinesLocked && it.kind === "time"} onDown={onItemDown} />
         );
       })}
       {ghost && (
@@ -469,8 +481,8 @@ const DayColumn = memo(function DayColumn({
   );
 });
 
-const EventBlock = memo(function EventBlock({ item, lane, lanes, hourHeight, dragging, selected, onDown }: {
-  item: CalItem; lane: number; lanes: number; hourHeight: number; dragging: boolean; selected: boolean;
+const EventBlock = memo(function EventBlock({ item, lane, lanes, hourHeight, dragging, selected, locked, onDown }: {
+  item: CalItem; lane: number; lanes: number; hourHeight: number; dragging: boolean; selected: boolean; locked: boolean;
   onDown: (e: RPointerEvent, item: CalItem, resize: boolean) => void;
 }) {
   const top = (item.start / 60) * hourHeight;
@@ -486,7 +498,7 @@ const EventBlock = memo(function EventBlock({ item, lane, lanes, hourHeight, dra
   const task = item.kind === "task_block" && item.taskId !== undefined
     ? store.get().tasks.find((t) => t.id === item.taskId) : undefined;
   return (
-    <div className={`ev kind-${item.kind}` + (compact ? " compact" : "") + (dragging ? " dragging" : "") + (selected ? " selected" : "") + (item.done ? " done" : "")}
+    <div className={`ev kind-${item.kind}` + (compact ? " compact" : "") + (dragging ? " dragging" : "") + (selected ? " selected" : "") + (item.done ? " done" : "") + (locked ? " locked" : "")}
       style={style} data-key={item.key} tabIndex={0} role="button"
       aria-label={`${item.title}, ${fmtRange(item.start, item.end)}`}
       onPointerDown={(e) => onDown(e, item, false)}
@@ -508,7 +520,7 @@ const EventBlock = memo(function EventBlock({ item, lane, lanes, hourHeight, dra
           {!compact && <span className="ev-time">{fmtRange(item.start, item.end)}</span>}
         </div>
       </div>
-      <div className="ev-resize" onPointerDown={(e) => onDown(e, item, true)} aria-hidden="true" />
+      {!locked && <div className="ev-resize" onPointerDown={(e) => onDown(e, item, true)} aria-hidden="true" />}
     </div>
   );
 });

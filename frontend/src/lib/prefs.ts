@@ -17,6 +17,8 @@ export type Prefs = {
   sidebarCollapsed: boolean;
   calSidebar: boolean;
   showCompleted: boolean;
+  routinesDraggable: boolean; // routines (recurring blocks) are locked in place unless this is on
+  v: number;                  // preferences format version
 };
 
 export const ACCENTS = [
@@ -44,7 +46,7 @@ function defaultClock(): "12" | "24" {
 const DEFAULTS: Prefs = {
   theme: "system",
   accent: ACCENTS[0].value,
-  weekStart: 1,
+  weekStart: 0,
   clock: defaultClock(),
   hourHeight: 52,
   workStart: 9 * 60,
@@ -53,12 +55,20 @@ const DEFAULTS: Prefs = {
   sidebarCollapsed: false,
   calSidebar: true,
   showCompleted: false,
+  routinesDraggable: false,
+  v: 2,
 };
 
 function load(): Prefs {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...DEFAULTS, ...JSON.parse(raw) };
+    if (raw) {
+      const stored = JSON.parse(raw);
+      // Before v2 the week started on Monday by default, and that default was saved with
+      // any other change. Drop it so the new Sunday default applies.
+      if (stored.v !== 2) delete stored.weekStart;
+      return { ...DEFAULTS, ...stored, v: 2 };
+    }
   } catch {
     /* fall through */
   }

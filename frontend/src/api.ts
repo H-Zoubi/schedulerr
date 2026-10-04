@@ -6,6 +6,13 @@ export class ApiError extends Error {
   }
 }
 
+function describe(detail: unknown, fallback: string): string {
+  if (typeof detail === "string") return detail;
+  // FastAPI validation errors: [{ msg: "..." }, ...]
+  if (Array.isArray(detail) && detail[0]?.msg) return String(detail[0].msg).replace(/^Value error, /, "");
+  return fallback;
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -13,13 +20,13 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     headers: init?.body ? { "Content-Type": "application/json" } : undefined,
   });
   if (!res.ok) {
-    let detail = res.statusText;
+    let detail = res.statusText || "Request failed";
     try {
-      detail = (await res.json()).detail ?? detail;
+      detail = describe((await res.json()).detail, detail);
     } catch {
       /* no JSON body */
     }
-    throw new ApiError(res.status, String(detail));
+    throw new ApiError(res.status, detail);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -35,19 +42,7 @@ export const del = (path: string) => api<void>(path, { method: "DELETE" });
 
 // ---------- Types matching the backend ----------
 
-export type WeekItem = {
-  kind: "time" | "event" | "task_block";
-  id: number;
-  title: string;
-  start: string | null;
-  end: string | null;
-  start_time: string | null; // "HH:MM:SS" for time blocks
-  end_time: string | null;
-  color: string;
-  task_id: number | null;
-};
-
-export type WeekDay = { date: string; items: WeekItem[] };
+export type User = { id: number; email: string };
 
 export type Task = {
   id: number;
@@ -60,6 +55,7 @@ export type Task = {
   duration_minutes: number | null;
   deadline: string | null;
   position: number;
+  priority: number;          // 0 none, 1 low, 2 medium, 3 high
 };
 
 export type Project = {
@@ -78,6 +74,33 @@ export type Column = {
   is_done: boolean;
 };
 
+export type CalEvent = {
+  id: number;
+  title: string;
+  start_at: string; // naive local "YYYY-MM-DDTHH:MM:SS"
+  end_at: string;
+  color: string;
+};
+
+// Recurring weekly slot. weekday: 0 = Monday ... 6 = Sunday.
+export type TimeBlock = {
+  id: number;
+  title: string;
+  weekday: number;
+  start_time: string; // "HH:MM:SS"
+  end_time: string;
+  start_date: string;
+  until_date: string | null;
+  color: string;
+};
+
+export type TaskBlock = {
+  id: number;
+  task_id: number;
+  start_at: string;
+  end_at: string;
+};
+
 export type Habit = {
   id: number;
   title: string;
@@ -86,3 +109,8 @@ export type Habit = {
   archived: boolean;
   done: number;
 };
+
+export type HabitLog = { habit_id: number; logged_on: string; count: number };
+
+export type ReminderKind = "event" | "task_block" | "time_block";
+export type Reminder = { kind: ReminderKind; target_id: number; minutes_before: number };

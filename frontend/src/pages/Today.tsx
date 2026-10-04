@@ -1,256 +1,358 @@
-import { FormEvent, useEffect, useState } from "react";
-import { api, del, Habit, post, Task, WeekDay, WeekItem } from "../api";
-import { addDays, isoDate, localIso, weekStartOf, timeLabel } from "../dates";
+import { CSSProperties, useEffect, useMemo, useState } from "react";
+import { Task } from "../api";
+import { Anchor, anchorOf, Empty, Popover, TaskCheck } from "../components/primitives";
+import { Icon } from "../components/Icon";
+import { TaskRow } from "../components/TaskRow";
+import { blocksByTask, CalItem, compareTasks, countIn, expandRange, freeGaps, habitWindow, logIndex, nextBlock } from "../lib/derive";
+import { navigate } from "../lib/router";
+import { openQuickAdd, openTask } from "../lib/ui";
+import { usePrefs } from "../lib/prefs";
+import { logHabit, scheduleTask, store, toggleTaskDone, updateTask, useData } from "../store";
+import { atMinutes, fmtDayLong, fmtDuration, fmtRange, fmtTime, nowMinutes, todayIso } from "../dates";
+import { toast } from "../lib/toast";
 
-// Today: what is on the timetable, what is due, what habits still need doing,
-// and which open tasks have no time yet.
+type Suggestion = { task: Task; start: number; end: number };
+
 export function Today() {
-  const [today, setToday] = useState<WeekDay | null>(null);
-  const [week, setWeek] = useState<WeekDay[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [habits, setHabits] = useState<Habit[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [planning, setPlanning] = useState<Task | null>(null);
-  const [loaded, setLoaded] = useState(false);
-
-  const todayIso = isoDate(new Date());
-
-  async function load() {
-    try {
-      const [days, allTasks, weekly, daily] = await Promise.all([
-        api<WeekDay[]>(`/api/week?start=${todayIso}`),
-        api<Task[]>("/api/tasks"),
-        api<Habit[]>(`/api/habits?start=${isoDate(weekStartOf(new Date()))}&end=${isoDate(addDays(weekStartOf(new Date()), 6))}`),
-        api<Habit[]>(`/api/habits?start=${todayIso}&end=${todayIso}`),
-      ]);
-      setWeek(days);
-      setToday(days[0]);
-      setTasks(allTasks);
-      setHabits(weekly.map((h) => (h.target_period === "day" ? daily.find((d) => d.id === h.id)! : h)));
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load today");
-    } finally {
-      setLoaded(true);
-    }
-  }
+  const data = useData();
+  const { workStart, workEnd } = usePrefs();
+  const [now, setNow] = useState(nowMinutes);
+  const [plan, setPlan] = useState<Suggestion[] | null>(null);
+  const [gapPicker, setGapPicker] = useState<{ gap: { start: number; end: number }; anchor: Anchor } | null>(null);
+  const today = todayIso();
 
   useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const t = window.setInterval(() => setNow(nowMinutes()), 30_000);
+    return () => window.clearInterval(t);
   }, []);
 
-  // ---------- Derived lists ----------
+  const items = useMemo(() => expandRange(today, today, data).get(today) ?? [],
+    [data.events, data.timeBlocks, data.taskBlocks, data.tasks, data.projects, today]); // eslint-disable-line react-hooks/exhaustive-deps
+  const blocks = useMemo(() => blocksByTask(data.taskBlocks), [data.taskBlocks]);
+  const projects = useMemo(() => new Map(data.projects.map((p) => [p.id, p])), [data.projects]);
 
-  const items = (today?.items ?? []).slice().sort((a, b) => startMinutes(a) - startMinutes(b));
+  const current = items.find((i) => i.start <= now && i.end > now);
+  const next = items.find((i) => i.start > now);
 
-  const scheduledIds = new Set(
-    week.flatMap((d) => d.items.filter((i) => i.kind === "task_block").map((i) => i.task_id)),
-  );
-  const open = tasks.filter((t) => !t.done);
-  const due = open.filter((t) => t.deadline !== null && t.deadline <= todayIso);
-  const unscheduled = open.filter((t) => !scheduledIds.has(t.id) && !due.includes(t));
-  const habitsDue = habits.filter((h) => !h.archived && h.done < h.target_count);
+  const open = data.tasks.filter((t) => !t.done);
+  const overdue = open.filter((t) => t.deadline && t.deadline < today).sort(compareTasks);
+  const dueToday = data.tasks.filter((t) => t.deadline === today).sort(compareTasks);
+  const scheduledIds = new Set(data.taskBlocks.filter((b) => b.end_at.slice(0, 10) >= today).map((b) => b.task_id));
+  const unscheduled = open.filter((t) => !scheduledIds.has(t.id)).sort((a, b) => {
+    // Deadlines soonest first, then priority.
+    const da = a.deadline ?? "9999";
+    const db = b.deadline ?? "9999";
+    return da.localeCompare(db) || b.priority - a.priority || a.position - b.position;
+  });
 
-  // ---------- Actions ----------
+  const dayTasks = items.filter((i) => i.kind === "task_block");
+  const doneBlocks = dayTasks.filter((i) => i.done).length;
+  const dueDone = dueToday.filter((t) => t.done).length;
+  const totalToday = dayTasks.length + dueToday.filter((t) => !dayTasks.some((i) => i.taskId === t.id)).length;
+  const doneToday = doneBlocks + dueToday.filter((t) => t.done && !dayTasks.some((i) => i.taskId === t.id)).length;
+  void dueDone;
 
-  async function complete(task: Task) {
-    await post(`/api/tasks/${task.id}/complete`, {});
-    load();
+  // Free gaps from now (rounded up to 15 minutes) until the end of the working day.
+  const from = Math.max(workStart, Math.ceil(now / 15) * 15);
+  const gaps = freeGaps(items, from, Math.max(workEnd, from), 20);
+  const freeTotal = gaps.reduce((s, g) => s + g.end - g.start, 0);
+
+  function planDay() {
+    const out: Suggestion[] = [];
+    const free = gaps.map((g) => ({ ...g }));
+    for (const task of unscheduled) {
+      const need = task.duration_minutes ?? 30;
+      const gap = free.find((g) => g.end - g.start >= need);
+      if (!gap) continue;
+      out.push({ task, start: gap.start, end: gap.start + need });
+      gap.start += need + 5; // a short buffer between blocks
+      if (out.length >= 6) break;
+    }
+    if (!out.length) toast(unscheduled.length ? "No free gap is long enough today." : "No unscheduled tasks to plan.");
+    setPlan(out.length ? out : null);
   }
 
-  async function logHabit(habit: Habit) {
-    const { start, end } = windowFor(habit);
-    await post(`/api/habits/${habit.id}/log?start=${start}&end=${end}`, { logged_on: todayIso, delta: 1 });
-    load();
+  function acceptPlan(list: Suggestion[]) {
+    for (const s of list) scheduleTask(s.task, atMinutes(today, s.start), atMinutes(today, s.end));
+    toast(`Planned ${list.length} ${list.length === 1 ? "task" : "tasks"} into today`, { tone: "success" });
+    setPlan(null);
   }
 
-  async function removeItem(item: WeekItem) {
-    if (!confirm(`Remove "${item.title}" from today?`)) return;
-    if (item.kind === "task_block") await del(`/api/task-blocks/${item.id}`);
-    else if (item.kind === "event") await del(`/api/events/${item.id}`);
-    else await del(`/api/time-blocks/${item.id}`);
-    load();
-  }
-
-  const dateLabel = new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
   const hour = new Date().getHours();
-  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const greeting = hour < 5 ? "Good night" : hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const pct = totalToday ? Math.round((doneToday / totalToday) * 100) : 0;
+
+  // Agenda: items interleaved with free gaps.
+  const agenda: ({ type: "item"; item: CalItem } | { type: "gap"; start: number; end: number })[] = [];
+  const gapList = [...gaps];
+  for (const item of items) {
+    while (gapList.length && gapList[0].end <= item.start) agenda.push({ type: "gap", ...gapList.shift()! });
+    agenda.push({ type: "item", item });
+  }
+  for (const g of gapList) agenda.push({ type: "gap", ...g });
 
   return (
-    <section className="today">
-      <div className="page-head">
-        <div className="titles">
+    <div className="page today-page">
+      <header className="page-head today-head">
+        <div>
+          <p className="eyebrow">{fmtDayLong(today)}</p>
           <h1>{greeting}</h1>
-          <div className="subtitle">{dateLabel}</div>
         </div>
-      </div>
+        {totalToday > 0 && (
+          <div className="ring-stat" title={`${doneToday} of ${totalToday} done`}>
+            <Ring value={pct} size={44} />
+            <div>
+              <strong>{doneToday}/{totalToday}</strong>
+              <span className="muted small">done today</span>
+            </div>
+          </div>
+        )}
+      </header>
 
-      {error && <div className="banner" role="alert">{error}</div>}
-
-      <div className="stats">
-        <Stat value={items.length} label="Blocks today" />
-        <Stat value={due.length} label={due.length === 1 ? "Due task" : "Due tasks"} tone={due.some((t) => t.deadline! < todayIso) ? "warn" : undefined} />
-        <Stat value={habitsDue.length} label="Habits left" />
-      </div>
+      <NowCard current={current} next={next} now={now} />
 
       <div className="today-grid">
-        <div className="card">
+        <section className="card agenda-card">
           <div className="card-head">
-            <h3>Timetable</h3>
-            <span className="count">{items.length}</span>
+            <h2>Schedule</h2>
+            <span className="muted small">{freeTotal > 0 ? `${fmtDuration(freeTotal)} free` : ""}</span>
+            <button className="btn sm ghost" onClick={() => navigate({ name: "calendar", view: "day", date: today })}>
+              Open day <Icon name="arrowRight" size={14} />
+            </button>
           </div>
-          {loaded && items.length === 0 && (
-            <div className="empty"><strong>Nothing scheduled</strong>Add a block from the Week tab, or plan a task below.</div>
+
+          {gaps.length > 0 && unscheduled.length > 0 && !plan && (
+            <button className="plan-cta" onClick={planDay}>
+              <Icon name="wand" size={18} />
+              <span>
+                <strong>Plan my day</strong>
+                <span className="muted small">Fit {Math.min(unscheduled.length, 6)} unscheduled {unscheduled.length === 1 ? "task" : "tasks"} into your free time</span>
+              </span>
+            </button>
           )}
-          <ul className="list">
-            {items.map((item) => (
-              <li key={`${item.kind}-${item.id}`} className="today-row">
-                <span className="today-time">{timeRange(item)}</span>
-                <span className="swatch" style={{ background: item.color }} />
-                <span className="title grow">{item.title}</span>
-                {item.kind === "task_block" && (
-                  <button className="chip" onClick={() => complete(tasks.find((t) => t.id === item.task_id)!)}>Done</button>
-                )}
-                {item.kind !== "time" && (
-                  <button className="icon" onClick={() => removeItem(item)} aria-label={`Remove ${item.title}`}>✕</button>
-                )}
+
+          {plan && (
+            <div className="plan-box">
+              <div className="plan-head">
+                <strong><Icon name="sparkle" size={15} /> Suggested plan</strong>
+                <span className="grow" />
+                <button className="btn sm ghost" onClick={() => setPlan(null)}>Dismiss</button>
+                <button className="btn sm primary" onClick={() => acceptPlan(plan)}>Add all</button>
+              </div>
+              {plan.map((s) => (
+                <div key={s.task.id} className="plan-row">
+                  <span className="plan-time">{fmtRange(s.start, s.end)}</span>
+                  <span className="grow truncate">{s.task.title}</span>
+                  <button className="btn sm ghost" onClick={() => setPlan(plan.filter((x) => x !== s))} aria-label="Skip">Skip</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {items.length === 0 && gaps.length === 0 && (
+            <Empty icon="calendar" title="Nothing scheduled">Drag a task onto the calendar, or press <kbd className="kbd">E</kbd> for an event.</Empty>
+          )}
+
+          <ol className="agenda">
+            {agenda.map((a) => a.type === "gap" ? (
+              <li key={`gap-${a.start}`} className="agenda-gap">
+                <span className="agenda-time">{fmtTime(a.start, true)}</span>
+                <button className="gap-btn" onClick={(e) => setGapPicker({ gap: a, anchor: anchorOf(e.currentTarget) })}>
+                  <span>Free · {fmtDuration(a.end - a.start)}</span>
+                  <span className="gap-add"><Icon name="plus" size={14} /> Plan</span>
+                </button>
               </li>
+            ) : (
+              <AgendaItem key={a.item.key} item={a.item} now={now} />
             ))}
-          </ul>
-        </div>
+          </ol>
+        </section>
 
-        <div className="stack">
-          <div className="card">
-            <div className="card-head">
-              <h3>Due</h3>
-              <span className="count">{due.length}</span>
-            </div>
-            {loaded && due.length === 0 && <p className="muted small">No deadlines today.</p>}
-            <ul className="list">
-              {due.map((t) => (
-                <li key={t.id} className="today-row">
-                  <button className="check" onClick={() => complete(t)} aria-label={`Complete ${t.title}`} />
-                  <span className="grow">
-                    <span className="title">{t.title}</span>
-                    {t.deadline && t.deadline < todayIso && <span className="error small"> · overdue</span>}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div className="card">
-            <div className="card-head">
-              <h3>Habits still due</h3>
-              <span className="count">{habitsDue.length}</span>
-            </div>
-            {loaded && habitsDue.length === 0 && <p className="muted small">All habits on track.</p>}
-            <ul className="list">
-              {habitsDue.map((h) => (
-                <li key={h.id} className="today-row">
-                  <span className="grow">
-                    <span className="title">{h.title}</span>
-                    <div className="meta">{h.done}/{h.target_count} per {h.target_period}</div>
-                  </span>
-                  <button className="primary" onClick={() => logHabit(h)}>+1</button>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div className="card">
-            <div className="card-head">
-              <h3>Plan from here</h3>
-              <span className="count">{unscheduled.length}</span>
-            </div>
-            {loaded && unscheduled.length === 0 && <p className="muted small">Every open task has a time this week.</p>}
-            <ul className="list">
-              {unscheduled.map((t) => (
-                <li key={t.id} className="today-row">
-                  <span className="grow title">{t.title}</span>
-                  <button className="chip" onClick={() => setPlanning(planning?.id === t.id ? null : t)}>
-                    {planning?.id === t.id ? "Cancel" : "Schedule"}
+        <div className="today-side">
+          {(overdue.length > 0 || dueToday.length > 0) && (
+            <section className="card">
+              <div className="card-head">
+                <h2>Due</h2>
+                {overdue.length > 0 && (
+                  <button className="link-btn" onClick={() => overdue.forEach((t) => updateTask(t.id, { deadline: today }))}>
+                    Reschedule overdue to today
                   </button>
-                </li>
-              ))}
-            </ul>
-            {planning && (
-              <PlanForm task={planning} day={todayIso} onDone={() => { setPlanning(null); load(); }} />
+                )}
+              </div>
+              <div className="task-list">
+                {[...overdue, ...dueToday].map((t) => (
+                  <TaskRow key={t.id} task={t} project={t.project_id ? projects.get(t.project_id) : undefined}
+                    block={nextBlock(blocks.get(t.id))} hideDate={today} onOpen={(x) => openTask(x.id)} />
+                ))}
+              </div>
+            </section>
+          )}
+
+          <HabitsCard />
+
+          <section className="card">
+            <div className="card-head">
+              <h2>Up next</h2>
+              <span className="count">{unscheduled.length}</span>
+              <button className="btn sm ghost" onClick={() => navigate({ name: "tasks", list: "anytime" })}>All <Icon name="arrowRight" size={14} /></button>
+            </div>
+            {unscheduled.length === 0 ? (
+              <p className="muted small pad">Every open task has a time. </p>
+            ) : (
+              <div className="task-list">
+                {unscheduled.filter((t) => !t.deadline || t.deadline > today).slice(0, 6).map((t) => (
+                  <TaskRow key={t.id} task={t} project={t.project_id ? projects.get(t.project_id) : undefined}
+                    onOpen={(x) => openTask(x.id)} />
+                ))}
+              </div>
             )}
-          </div>
+            <button className="add-row" onClick={() => openQuickAdd({ mode: "task" })}><Icon name="plus" size={15} /> Add task</button>
+          </section>
         </div>
+      </div>
+
+      {gapPicker && (
+        <GapPicker gap={gapPicker.gap} anchor={gapPicker.anchor} tasks={unscheduled}
+          onClose={() => setGapPicker(null)}
+          onPick={(task) => {
+            const end = Math.min(gapPicker.gap.start + (task.duration_minutes ?? 30), gapPicker.gap.end);
+            scheduleTask(task, atMinutes(today, gapPicker.gap.start), atMinutes(today, end));
+            setGapPicker(null);
+          }}
+          onEvent={() => {
+            openQuickAdd({ mode: "event", date: today, start: gapPicker.gap.start, end: Math.min(gapPicker.gap.start + 60, gapPicker.gap.end) });
+            setGapPicker(null);
+          }} />
+      )}
+    </div>
+  );
+}
+
+function NowCard({ current, next, now }: { current?: CalItem; next?: CalItem; now: number }) {
+  if (!current && !next) return null;
+  return (
+    <div className="now-card">
+      {current ? (
+        <div className="now-main" style={{ "--c": current.color } as CSSProperties}>
+          <span className="now-label"><span className="pulse" /> Now</span>
+          <strong className="now-title">{current.title}</strong>
+          <div className="now-progress"><span style={{ width: `${((now - current.start) / (current.end - current.start)) * 100}%` }} /></div>
+          <span className="muted small">{fmtDuration(current.end - now)} left · until {fmtTime(current.end, true)}</span>
+        </div>
+      ) : (
+        <div className="now-main free">
+          <span className="now-label">Now</span>
+          <strong className="now-title">Free time</strong>
+          <span className="muted small">{next ? `${fmtDuration(next.start - now)} until ${next.title}` : ""}</span>
+        </div>
+      )}
+      {next && (
+        <div className="now-next" style={{ "--c": next.color } as CSSProperties}>
+          <span className="now-label">Next · in {fmtDuration(next.start - now)}</span>
+          <strong className="truncate">{next.title}</strong>
+          <span className="muted small">{fmtRange(next.start, next.end)}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AgendaItem({ item, now }: { item: CalItem; now: number }) {
+  const past = item.end <= now;
+  const live = item.start <= now && item.end > now;
+  const task = item.taskId !== undefined ? store.get().tasks.find((t) => t.id === item.taskId) : undefined;
+  return (
+    <li className={"agenda-item" + (past ? " past" : "") + (live ? " live" : "") + (item.done ? " done" : "")}
+      style={{ "--c": item.color } as CSSProperties}>
+      <span className="agenda-time">{fmtTime(item.start, true)}</span>
+      <button className="agenda-body" onClick={() => task ? openTask(task.id) : navigate({ name: "calendar", view: "day", date: item.date })}>
+        <span className="agenda-bar" />
+        <span className="agenda-text">
+          <span className="agenda-title">
+            {item.kind === "time" && <Icon name="repeat" size={12} />} {item.title}
+          </span>
+          <span className="muted small">{fmtRange(item.start, item.end)} · {fmtDuration(item.end - item.start)}</span>
+        </span>
+      </button>
+      {task && <TaskCheck done={task.done} priority={task.priority} onToggle={() => toggleTaskDone(task)} label="Complete" />}
+    </li>
+  );
+}
+
+function GapPicker({ gap, anchor, tasks, onPick, onEvent, onClose }: {
+  gap: { start: number; end: number }; anchor: Anchor; tasks: Task[];
+  onPick: (t: Task) => void; onEvent: () => void; onClose: () => void;
+}) {
+  const len = gap.end - gap.start;
+  const fits = tasks.filter((t) => (t.duration_minutes ?? 30) <= len);
+  const rest = tasks.filter((t) => (t.duration_minutes ?? 30) > len);
+  return (
+    <Popover anchor={anchor} onClose={onClose} width={300} className="gap-pop">
+      <div className="pop-head"><strong>{fmtRange(gap.start, gap.end)}</strong><span className="muted small">{fmtDuration(len)} free</span></div>
+      <div className="gap-list">
+        {[...fits, ...rest].slice(0, 8).map((t) => (
+          <button key={t.id} className={"gap-task" + (fits.includes(t) ? "" : " too-long")} onClick={() => onPick(t)}>
+            <span className="truncate grow">{t.title}</span>
+            <span className="muted small">{fmtDuration(t.duration_minutes ?? 30)}</span>
+          </button>
+        ))}
+        {tasks.length === 0 && <p className="muted small">No unscheduled tasks.</p>}
+      </div>
+      <button className="btn sm ghost full" onClick={onEvent}><Icon name="calendar" size={14} /> New event here</button>
+    </Popover>
+  );
+}
+
+function HabitsCard() {
+  const habits = useData((s) => s.habits);
+  const logs = useData((s) => s.habitLogs);
+  const today = todayIso();
+  const idx = useMemo(() => logIndex(logs), [logs]);
+  if (!habits.length) return null;
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2>Habits</h2>
+        <button className="btn sm ghost" onClick={() => navigate({ name: "habits" })}>All <Icon name="arrowRight" size={14} /></button>
+      </div>
+      <div className="habit-chips">
+        {habits.map((h) => {
+          const w = habitWindow(h);
+          const done = countIn(idx.get(h.id), w.start, w.end);
+          const met = done >= h.target_count;
+          return (
+            <button key={h.id} className={"habit-chip" + (met ? " met" : "")}
+              onClick={() => {
+                logHabit(h.id, today, 1);
+                toast(`Logged “${h.title}”`, { action: { label: "Undo", run: () => logHabit(h.id, today, -1) } });
+              }}
+              onContextMenu={(e) => { e.preventDefault(); logHabit(h.id, today, -1); }}
+              title={`${done}/${h.target_count} this ${h.target_period} — click to log, right-click to undo`}>
+              <Ring value={Math.min(100, (done / h.target_count) * 100)} size={30} done={met} />
+              <span className="habit-chip-text">
+                <span className="truncate">{h.title}</span>
+                <span className="muted small">{done}/{h.target_count} {h.target_period === "day" ? "today" : "this week"}</span>
+              </span>
+            </button>
+          );
+        })}
       </div>
     </section>
   );
 }
 
-function Stat({ value, label, tone }: { value: number; label: string; tone?: "warn" }) {
+export function Ring({ value, size = 40, done }: { value: number; size?: number; done?: boolean }) {
+  const r = (size - 5) / 2;
+  const c = 2 * Math.PI * r;
   return (
-    <div className="stat">
-      <div className="num" style={tone === "warn" && value > 0 ? { color: "var(--danger)" } : undefined}>{value}</div>
-      <div className="label">{label}</div>
-    </div>
+    <svg className={"ring" + (done || value >= 100 ? " full" : "")} width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
+      <circle cx={size / 2} cy={size / 2} r={r} className="ring-track" />
+      <circle cx={size / 2} cy={size / 2} r={r} className="ring-fill"
+        strokeDasharray={c} strokeDashoffset={c * (1 - Math.min(100, value) / 100)}
+        transform={`rotate(-90 ${size / 2} ${size / 2})`} />
+      {(done || value >= 100) && (
+        <path d={`M${size * 0.34} ${size * 0.52} l${size * 0.11} ${size * 0.11} l${size * 0.22} -${size * 0.24}`} className="ring-check" />
+      )}
+    </svg>
   );
-}
-
-function PlanForm({ task, day, onDone }: { task: Task; day: string; onDone: () => void }) {
-  const [start, setStart] = useState(`${day}T09:00`);
-  const [minutes, setMinutes] = useState(task.duration_minutes ?? 60);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    setSaving(true);
-    setError(null);
-    try {
-      const startDate = new Date(start);
-      const endDate = new Date(startDate.getTime() + minutes * 60_000);
-      await post("/api/task-blocks", {
-        task_id: task.id,
-        start_at: localIso(startDate),
-        end_at: localIso(endDate),
-      });
-      onDone();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not schedule");
-      setSaving(false);
-    }
-  }
-
-  return (
-    <form className="form plan-form" onSubmit={submit}>
-      <strong className="small">“{task.title}”</strong>
-      <div className="row">
-        <label className="grow">Start<input type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} required /></label>
-        <label className="grow">Minutes<input type="number" min={15} step={15} value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} /></label>
-      </div>
-      {error && <p className="error small">{error}</p>}
-      <button className="primary" disabled={saving}>{saving ? "Adding…" : "Add to today"}</button>
-    </form>
-  );
-}
-
-// ---------- Helpers ----------
-
-function startMinutes(item: WeekItem): number {
-  if (item.kind === "time") {
-    const [h, m] = item.start_time!.split(":").map(Number);
-    return h * 60 + m;
-  }
-  const d = new Date(item.start!);
-  return d.getHours() * 60 + d.getMinutes();
-}
-
-function timeRange(item: WeekItem): string {
-  if (item.kind === "time") return `${item.start_time!.slice(0, 5)}–${item.end_time!.slice(0, 5)}`;
-  return `${timeLabel(item.start!)}–${timeLabel(item.end!)}`;
-}
-
-function windowFor(habit: Habit): { start: string; end: string } {
-  const today = new Date();
-  if (habit.target_period === "day") return { start: isoDate(today), end: isoDate(today) };
-  const weekStart = weekStartOf(today);
-  return { start: isoDate(weekStart), end: isoDate(addDays(weekStart, 6)) };
 }

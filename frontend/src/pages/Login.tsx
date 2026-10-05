@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { ApiError, post } from "../api";
+import { APP_VERSION } from "../version";
 
 type User = { id: number; email: string };
 
@@ -30,6 +31,7 @@ export function Login({ onLogin }: { onLogin: (user: User) => void }) {
           Schedulerr
         </div>
         <p className="sub">Plan your week, one block at a time.</p>
+        <span className="app-version">v{APP_VERSION}</span>
 
         <label>
           Email

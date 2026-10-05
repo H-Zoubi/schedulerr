@@ -333,6 +333,8 @@ h3 { font-size: 15px; font-weight: 650; }
 }
 .nav-link.active .nav-count { background: var(--accent); color: var(--on-accent); }
 
+.app-version { color: var(--muted); font-size: 11px; align-self: center; }
+
 .sidebar-foot {
   margin-top: auto;
   display: flex;

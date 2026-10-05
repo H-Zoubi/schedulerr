@@ -30,7 +30,7 @@ def _apply(item, data: dict) -> None:
 
 def _check_range(start, end, db: DBSession) -> None:
     """Reject an end that is not after the start. Rolls back the pending change first."""
-    if end <= start:
+    if start is None or end is None or end <= start:
         db.rollback()
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "End must be after start")
 

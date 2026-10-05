@@ -12,8 +12,9 @@ from .models import Session, User
 COOKIE_NAME = "schedulerr_session"
 SESSION_DAYS = 30
 
-# scrypt parameters (N=2**15, r=8, p=1) follow OWASP's current minimum recommendation.
-_SCRYPT = {"n": 2**15, "r": 8, "p": 1, "dklen": 64, "maxmem": 2**26}
+# New hashes include their parameters; legacy hashes are upgraded on login.
+_SCRYPT = {"n": 2**17, "r": 8, "p": 1, "dklen": 64, "maxmem": 2**28}
+_LEGACY_SCRYPT = {**_SCRYPT, "n": 2**15}
 
 
 def _now() -> datetime:
@@ -23,16 +24,28 @@ def _now() -> datetime:
 def hash_password(password: str) -> str:
     salt = secrets.token_bytes(16)
     digest = hashlib.scrypt(password.encode(), salt=salt, **_SCRYPT)
-    return f"scrypt${salt.hex()}${digest.hex()}"
+    return f"scrypt$131072$8$1${salt.hex()}${digest.hex()}"
 
 
 def verify_password(password: str, stored: str) -> bool:
     try:
-        _, salt_hex, digest_hex = stored.split("$")
-    except ValueError:
+        parts = stored.split("$")
+        if len(parts) == 3 and parts[0] == "scrypt":
+            _, salt_hex, digest_hex = parts
+            params = _LEGACY_SCRYPT
+        elif len(parts) == 6 and parts[:4] == ["scrypt", "131072", "8", "1"]:
+            _, _, _, _, salt_hex, digest_hex = parts
+            params = _SCRYPT
+        else:
+            return False
+        digest = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt_hex), **params)
+    except (ValueError, TypeError):
         return False
-    digest = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt_hex), **_SCRYPT)
     return hmac.compare_digest(digest.hex(), digest_hex)
+
+
+def password_needs_rehash(stored: str) -> bool:
+    return not stored.startswith("scrypt$131072$8$1$")
 
 
 def _hash_token(token: str) -> str:

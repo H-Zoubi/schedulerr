@@ -6,6 +6,7 @@ import { Week } from "./pages/Week";
 import { Inbox } from "./pages/Inbox";
 import { Kanban } from "./pages/Kanban";
 import { Habits } from "./pages/Habits";
+import { APP_VERSION } from "./version";
 
 type Tab = "today" | "week" | "inbox" | "kanban" | "habits";
 type Theme = "system" | "light" | "dark";
@@ -171,6 +172,7 @@ export function App() {
           ))}
         </nav>
         <div className="sidebar-foot">
+          <span className="app-version" title={`Schedulerr ${APP_VERSION}`}>v{APP_VERSION}</span>
           <ThemePicker theme={theme} onChange={setTheme} />
           <div className="user-email" title={user.email}>{user.email}</div>
           <button className="ghost logout" title="Log out" onClick={logout}>
@@ -185,6 +187,7 @@ export function App() {
             <span className="brand-mark" aria-hidden="true">S</span>
           </div>
           <div className="topbar-actions">
+            <span className="app-version">v{APP_VERSION}</span>
             <button className="ghost" onClick={logout}>Log out</button>
           </div>
         </header>

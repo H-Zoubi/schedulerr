@@ -55,6 +55,33 @@ python -m pytest
 
 The schema is managed by Alembic. After changing `models.py`, create a migration with `python -m alembic revision --autogenerate -m "describe change"` and apply it with `python -m alembic upgrade head`.
 
+## Public hosting security (v0.1.1)
+
+- Keep the public site behind HTTPS. For a Cloudflare Tunnel running on the host,
+  point it at `http://127.0.0.1:8080`; Docker now binds this port only to localhost.
+  A tunnel running in Docker should reach `http://web:80` on the same Docker network.
+- Set `ALLOWED_ORIGINS` to your exact public HTTPS origin.
+- Set `POSTGRES_PASSWORD` explicitly before starting Docker. For an existing database,
+  use its current password: changing the environment variable does not rotate the
+  database password. Rotate an existing weak password in PostgreSQL separately,
+  then update the environment to match. URL-encode special characters in the
+  `DATABASE_URL` connection string, or choose a long random alphanumeric password.
+- Password hashes upgrade automatically on successful login; existing accounts and
+  sessions remain usable. New scrypt hashes use about 128 MiB per verification.
+  The backend permits at most two concurrent password checks per worker.
+- Nginx adds login request throttling, a request body limit, and browser security
+  headers. These protections require the production Nginx frontend; Vite is for
+  local development only. The Nginx limit uses the connecting peer address, which
+  may be shared by all visitors behind a tunnel. It does not trust arbitrary
+  forwarded client-IP headers.
+- Backend login failure counters remain per-process and reset on restart. Use
+  Cloudflare Access or edge rate limiting for protection across restarts or replicas.
+- API access currently has full single-user permissions. Do not give an untrusted
+  integration your session cookie.
+- To apply a committed update on a Docker host, rebuild with
+  `docker compose up -d --build`. Back up the database first and verify the login
+  screen shows `v0.1.1` afterward. A Git commit alone does not update the running API.
+
 ## Layout
 
 - `backend/app/`: FastAPI app. `main.py` (auth routes), `routes.py` (resources), `models.py`, `auth.py`, `db.py`

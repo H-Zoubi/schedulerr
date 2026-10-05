@@ -2,6 +2,7 @@ import os
 import threading
 import time
 from collections import defaultdict, deque
+from contextlib import contextmanager
 
 from fastapi import HTTPException, Request, status
 from starlette.responses import JSONResponse
@@ -60,6 +61,42 @@ class FailureLimiter:
     def __init__(self):
         self._failures: dict[str, deque[float]] = defaultdict(deque)
         self._lock = threading.Lock()
+        self._pending: dict[str, int] = defaultdict(int)
+        self._hash_slots = threading.BoundedSemaphore(2)
+
+    @contextmanager
+    def attempt(self, keys: list[str]):
+        # Reserve a slot before hashing so concurrent requests cannot bypass the limit.
+        if not self._hash_slots.acquire(blocking=False):
+            raise HTTPException(429, "Sign-in is busy. Try again shortly.",
+                                headers={"Retry-After": "5"})
+        try:
+            self._reserve(keys)
+        except BaseException:
+            self._hash_slots.release()
+            raise
+        try:
+            yield
+        finally:
+            with self._lock:
+                for key in keys:
+                    self._pending[key] -= 1
+                    if not self._pending[key]:
+                        del self._pending[key]
+            self._hash_slots.release()
+
+    def _reserve(self, keys: list[str]) -> None:
+        with self._lock:
+            now = time.monotonic()
+            for key in list(self._failures):
+                if not self._recent(key, now) and not self._pending.get(key):
+                    del self._failures[key]
+            if any(len(self._recent(key, now)) + self._pending.get(key, 0) >= MAX_FAILURES
+                   for key in keys):
+                raise HTTPException(429, "Too many sign-in attempts. Try again later.",
+                                    headers={"Retry-After": str(WINDOW_SECONDS)})
+            for key in keys:
+                self._pending[key] += 1
 
     def _recent(self, key: str, now: float) -> deque[float]:
         q = self._failures[key]

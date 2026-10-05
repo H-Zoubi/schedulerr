@@ -160,6 +160,20 @@ def test_invalid_task_block_move_is_rolled_back(client):
     assert kept["end"] == "2026-10-06T11:00:00"
 
 
+def test_null_task_block_times_are_rejected_and_rolled_back(client):
+    task = client.post("/api/tasks", json={"title": "t"}).json()
+    block = client.post("/api/task-blocks", json={
+        "task_id": task["id"], "start_at": "2026-10-06T10:00:00", "end_at": "2026-10-06T11:00:00",
+    }).json()
+    for field in ("start_at", "end_at"):
+        res = client.patch(f"/api/task-blocks/{block['id']}", json={field: None})
+        assert res.status_code == 422
+    week = client.get("/api/week?start=2026-10-05").json()
+    kept = next(i for d in week for i in d["items"] if i["kind"] == "task_block")
+    assert kept["start"] == "2026-10-06T10:00:00"
+    assert kept["end"] == "2026-10-06T11:00:00"
+
+
 def test_habit_weekly_count_and_undo_floor(client):
     habit = client.post("/api/habits", json={"title": "Walk", "target_count": 3}).json()
     url = f"/api/habits/{habit['id']}/log?start=2026-09-28&end=2026-10-04"

@@ -54,7 +54,7 @@ export function ApiKeys() {
   }
 
   async function revoke(key: Key) {
-    if (!confirm(`Revoke "${key.name}"? Any AI using this key will lose access immediately.`)) return;
+    if (!confirm(`Revoke "${key.name}"? Anything using this key will lose access immediately.`)) return;
     setBusy(true); setError(null);
     try {
       await del(`/auth/api-keys/${key.id}`);
@@ -73,56 +73,47 @@ export function ApiKeys() {
     } catch { setError("Copy unavailable. Select the key below and copy it manually."); }
   }
 
-  return <section className="page api-access">
-    <div className="page-head"><div className="titles">
-      <h1>AI access</h1>
-      <div className="subtitle">Give your AI its own key to access your planner.</div>
-    </div></div>
-    {error && <div className="form-error" role="alert">{error}</div>}
-    <div className="card access-connection">
-      <h2>Connect your AI</h2>
-      <p>Use this planner address in your AI integration:</p>
-      <code>{window.location.origin}</code>
-      <p>Send the key as <code>Authorization: Bearer YOUR_KEY</code>. Read your calendar with <code>GET /api/week?start=YYYY-MM-DD</code>.</p>
-      <p className="muted">Keys cover calendar items, tasks, habits, projects, and reminders. Keep each key in your AI client's credential storage.</p>
+  return <section className="settings-section api-keys">
+    <h2>API keys</h2>
+    <div className="keys-block">
+      <p>Use an API key to reach your planner from scripts and other apps. Send it as <code>Authorization: Bearer YOUR_KEY</code> to <code>{window.location.origin}</code>, for example <code>GET /api/week?start=YYYY-MM-DD</code>.</p>
+      <p className="muted">Keys cover calendar items, tasks, habits, projects, and reminders. Store each key somewhere safe: it can't be shown again.</p>
     </div>
-    {created && <div className="card access-reveal" role="region" aria-label="Your new API key">
-      <h2>Save your key</h2>
-      <p>This secret is shown only now. You cannot retrieve it after leaving this page or dismissing it.</p>
+    {error && <div className="form-error keys-block" role="alert">{error}</div>}
+    {created && <div className="keys-block keys-reveal" role="region" aria-label="Your new API key">
+      <strong>Save your key</strong>
+      <p>This secret is shown only now. You cannot retrieve it after dismissing this.</p>
       <label htmlFor="new-api-key">{created.name}</label>
-      <input id="new-api-key" className="access-secret" readOnly value={created.key} onFocus={(e) => e.currentTarget.select()} autoComplete="off" spellCheck={false} />
-      <div className="access-actions">
-        <button className="btn primary" onClick={copy}>{copied ? "Copied" : "Copy key"}</button>
-        <button className="btn" onClick={() => setCreated(null)}>I've saved it</button>
+      <input id="new-api-key" className="keys-secret" readOnly value={created.key} onFocus={(e) => e.currentTarget.select()} autoComplete="off" spellCheck={false} />
+      <div className="keys-actions">
+        <button className="btn primary sm" onClick={copy}>{copied ? "Copied" : "Copy key"}</button>
+        <button className="btn sm" onClick={() => setCreated(null)}>I've saved it</button>
         <span role="status" className="muted">{copied ? "Key copied to clipboard" : ""}</span>
       </div>
     </div>}
-    <form className="card access-form" onSubmit={create}>
-      <h2>Create a key</h2>
+    <form className="keys-block keys-form" onSubmit={create}>
+      <strong>Create a key</strong>
       <label htmlFor="key-name">Name</label>
-      <input id="key-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. My scheduling assistant" maxLength={100} required />
+      <input id="key-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Home script" maxLength={100} required />
       <label htmlFor="key-scope">Permissions</label>
       <select id="key-scope" value={scope} onChange={(e) => setScope(e.target.value as "read" | "write")}>
         <option value="read">Read only</option><option value="write">Read and write</option>
       </select>
-      <p className="muted">{scope === "read" ? "Can view your planner." : "Can view, create, edit, and delete planner items."}</p>
+      <small className="muted">{scope === "read" ? "Can view your planner." : "Can view, create, edit, and delete planner items."}</small>
       <label htmlFor="key-expiry">Expires after</label>
       <select id="key-expiry" value={days} onChange={(e) => setDays(e.target.value)}>
         <option value="30">30 days</option><option value="90">90 days</option><option value="365">1 year</option><option value="never">Never</option>
       </select>
       <button className="btn primary" disabled={busy || loading || !name.trim() || created !== null} type="submit">{busy ? "Working…" : "Create key"}</button>
-      {created && <p className="muted">Save and dismiss your new key before creating another.</p>}
+      {created && <small className="muted">Save and dismiss your new key before creating another.</small>}
     </form>
-    <div className="access-list">
-      <h2>Your keys</h2>
-      {loading ? <p className="muted">Loading keys…</p> : keys.length === 0 ? <p className="muted">No keys yet. Create one above to connect your AI.</p> : keys.map((key) =>
-        <div className="card access-key" key={key.id}>
-          <div className="access-key-info"><h3>{key.name}</h3>
-            <code>{key.prefix}…</code>
-            <p className="muted">{key.scope === "read" ? "Read only" : "Read and write"} · Created {dateLabel(key.created_at)} · {key.expires_at ? `${expired(key.expires_at) ? "Expired" : "Expires"} ${dateLabel(key.expires_at)}` : "Never expires"}</p>
-          </div>
-          <button className="btn danger" disabled={busy} onClick={() => revoke(key)} aria-label={`Revoke ${key.name}`}>Revoke</button>
-        </div>)}
-    </div>
+    {loading ? <p className="muted keys-block">Loading keys…</p> : keys.length === 0 ? <p className="muted keys-block">No keys yet.</p> : keys.map((key) =>
+      <div className="settings-row keys-item" key={key.id}>
+        <div className="keys-info">
+          <span>{key.name}</span> <code>{key.prefix}…</code>
+          <small className="muted">{key.scope === "read" ? "Read only" : "Read and write"} · Created {dateLabel(key.created_at)} · {key.expires_at ? `${expired(key.expires_at) ? "Expired" : "Expires"} ${dateLabel(key.expires_at)}` : "Never expires"}</small>
+        </div>
+        <button className="btn sm danger" disabled={busy} onClick={() => revoke(key)} aria-label={`Revoke ${key.name}`}>Revoke</button>
+      </div>)}
   </section>;
 }

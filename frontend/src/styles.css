@@ -1040,7 +1040,9 @@ select.btn { padding-right: 26px; min-height: 0; }
    Board
    ========================================================================== */
 
-.board-page { max-width: none; padding: 22px 0 0; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+/* margin: 0 (not .page's auto) so the page stretches to the viewport; otherwise it grows to
+   fit all the columns and the route's overflow: hidden crops them instead of .board scrolling. */
+.board-page { max-width: none; margin: 0; min-width: 0; padding: 22px 0 0; display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .board-page .page-head, .board-page .board-switch { padding: 0 28px; }
 .board-head { margin-bottom: 12px; }
 .board-title { display: flex; align-items: center; gap: 12px; }
@@ -1306,17 +1308,12 @@ select.btn { padding-right: 26px; min-height: 0; }
 }
 .app-version { color: var(--text-3); font-size: 11px; align-self: center; }
 .collapsed .brand .app-version { display: none; }
-.api-access { max-width: 760px; margin: 0 auto; }
-.api-access .card { margin-bottom: 18px; padding: 20px; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); }
-.api-access h2 { font-size: 18px; margin-bottom: 12px; }
-.api-access p { margin: 10px 0; line-height: 1.5; }
-.api-access code { overflow-wrap: anywhere; }
-.api-access .subtitle { color: var(--text-2); margin-top: 6px; }
-.access-form { display: flex; flex-direction: column; gap: 8px; }
-.access-form > button { align-self: flex-start; margin-top: 8px; }
-.access-form p { margin: 0 0 6px; }
-.access-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
-.access-secret { font-family: monospace; margin-top: 8px; width: 100%; }
-.api-access .access-reveal { border-color: var(--accent); }
-.access-key { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-.access-key-info { flex: 1; min-width: 180px; overflow-wrap: anywhere; }
+.keys-block { padding: 12px 0; border-top: 1px solid var(--border); }
+.api-keys h2 + .keys-block { border-top: 0; }
+.keys-block p { margin: 0 0 8px; line-height: 1.5; }
+.api-keys code { overflow-wrap: anywhere; }
+.keys-form { display: flex; flex-direction: column; gap: 8px; }
+.keys-form > button { align-self: flex-start; margin-top: 4px; }
+.keys-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px; }
+.keys-secret { font-family: monospace; margin-top: 6px; width: 100%; }
+.keys-info { flex: 1; min-width: 180px; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }

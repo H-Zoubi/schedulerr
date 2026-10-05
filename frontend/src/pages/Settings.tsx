@@ -6,6 +6,7 @@ import { ACCENTS, CalView, setPref, Theme, usePrefs } from "../lib/prefs";
 import { setShortcuts } from "../lib/ui";
 import { toast, toastError } from "../lib/toast";
 import { timeString } from "../dates";
+import { ApiKeys } from "./ApiKeys";
 
 const HOURS = Array.from({ length: 25 }, (_, h) => h * 60);
 
@@ -101,6 +102,8 @@ export function Settings({ user, onLogout }: { user: User; onLogout: () => void 
           </div>
         </Row>
       </section>
+
+      <ApiKeys />
 
       <section className="settings-section">
         <h2>Account</h2>

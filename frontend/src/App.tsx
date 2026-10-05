@@ -6,7 +6,6 @@ import { Calendar } from "./pages/Calendar";
 import { Tasks } from "./pages/Tasks";
 import { Board } from "./pages/Board";
 import { Habits } from "./pages/Habits";
-import { ApiKeys } from "./pages/ApiKeys";
 import { APP_VERSION } from "./version";
 import { Icon, IconName } from "./components/Icon";
 import { IconButton, Kbd, Toaster } from "./components/primitives";
@@ -120,7 +119,6 @@ function Page({ route, user, onLogout }: { route: Route; user: User; onLogout: (
     case "tasks": return <Tasks list={route.list} />;
     case "board": return <Board id={route.id} />;
     case "habits": return <Habits />;
-    case "access": return <ApiKeys />;
     case "settings": return <Suspense fallback={null}><Settings user={user} onLogout={onLogout} /></Suspense>;
     default: return <Today />;
   }
@@ -161,7 +159,6 @@ function useNavItems(): NavItem[] {
       { route: { name: "tasks", list: "upcoming" }, label: "Tasks", icon: "tasks", match: (r) => r.name === "tasks" && r.list !== "inbox" },
       { route: { name: "board", id: null }, label: "Board", icon: "board", match: (r) => r.name === "board" },
       { route: { name: "habits" }, label: "Habits", icon: "habits", match: (r) => r.name === "habits", badge: habitsLeft || undefined },
-      { route: { name: "access" }, label: "AI access", icon: "settings", match: (r) => r.name === "access" },
     ] as NavItem[];
   }, [tasks, habits, logs]);
 }

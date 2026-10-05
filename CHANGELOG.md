@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Move API key management into Settings → API keys and drop the "AI" wording from the UI and docs; the old `/access` address opens Settings.
 - Make the Docker frontend bind address configurable with `WEB_BIND` (default `127.0.0.1`) so a Cloudflare Tunnel on another host can reach it.
 
 ## 0.1.1 — 2026-10-05

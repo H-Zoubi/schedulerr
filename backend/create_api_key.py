@@ -13,7 +13,7 @@ def main():
         parser.error("--user-id must be positive")
     key = "schedulerr_" + secrets.token_urlsafe(32)
     digest = hashlib.sha256(key.encode()).hexdigest()
-    print("Save this secret in your AI client's credential storage:")
+    print("Save this secret somewhere safe:")
     print(key)
     print("\nAdd these server settings to the root .env for Docker, or the backend environment:")
     print(f"AI_API_USER_ID={args.user_id}")

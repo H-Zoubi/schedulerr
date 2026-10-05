@@ -9,7 +9,6 @@ export type Route =
   | { name: "tasks"; list: string }        // inbox | today | upcoming | anytime | done | project:<id>
   | { name: "board"; id: number | null }   // null = general board
   | { name: "habits" }
-  | { name: "access" }
   | { name: "settings" };
 
 export function parseRoute(path: string, search: string): Route {
@@ -27,8 +26,8 @@ export function parseRoute(path: string, search: string): Route {
       return { name: "habits" };
     case "settings":
       return { name: "settings" };
-    case "access":
-      return { name: "access" };
+    case "access": // old address of the API keys page, now part of Settings
+      return { name: "settings" };
     default:
       return { name: "today" };
   }

@@ -40,7 +40,9 @@ services:
   web:
     build: ./frontend
     ports:
-      - "127.0.0.1:8080:80"
+      # Localhost only by default. If the Cloudflare Tunnel runs on another host
+      # (e.g. another LXC), set WEB_BIND to this host's LAN IP in .env.
+      - "${WEB_BIND:-127.0.0.1}:8080:80"
     depends_on:
       - api
     restart: unless-stopped

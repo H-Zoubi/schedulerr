@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Make the Docker frontend bind address configurable with `WEB_BIND` (default `127.0.0.1`) so a Cloudflare Tunnel on another host can reach it.
+
 ## 0.1.1 — 2026-10-05
 
 - Upgrade scrypt password hashing on successful login while preserving existing accounts.

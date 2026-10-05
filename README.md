@@ -62,8 +62,12 @@ The schema is managed by Alembic. After changing `models.py`, create a migration
 ## Public hosting security (v0.1.1)
 
 - Keep the public site behind HTTPS. For a Cloudflare Tunnel running on the host,
-  point it at `http://127.0.0.1:8080`; Docker now binds this port only to localhost.
+  point it at `http://127.0.0.1:8080`; Docker binds this port only to localhost by default.
   A tunnel running in Docker should reach `http://web:80` on the same Docker network.
+  If the tunnel runs on a different machine (for example another Proxmox LXC), set
+  `WEB_BIND` in `.env` to this host's LAN IP (e.g. `WEB_BIND=192.168.1.222`) and point
+  the tunnel at `http://<that IP>:8080`. Avoid `0.0.0.0` unless the LAN is trusted.
+  Without it, the tunnel gets "connection refused" and the site is down.
 - Set `ALLOWED_ORIGINS` to your exact public HTTPS origin.
 - Set `POSTGRES_PASSWORD` explicitly before starting Docker. For an existing database,
   use its current password: changing the environment variable does not rotate the

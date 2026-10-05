@@ -1,13 +1,14 @@
 import hashlib
 import hmac
+import os
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import Cookie, Depends, HTTPException, Response, status
+from fastapi import Cookie, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session as DBSession
 
 from .db import get_db
-from .models import Session, User
+from .models import ApiKey, Session, User
 
 COOKIE_NAME = "schedulerr_session"
 SESSION_DAYS = 30
@@ -96,4 +97,48 @@ def current_user(
     user = db.get(User, row.user_id)
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not logged in")
+    return user
+
+
+def api_user(
+    request: Request,
+    token: str | None = Cookie(default=None, alias=COOKIE_NAME),
+    db: DBSession = Depends(get_db),
+) -> User:
+    """API integrations use scoped bearer keys; browser sessions still work."""
+    authorization = request.headers.get("Authorization")
+    if authorization is None:
+        return current_user(token=token, db=db)
+    scheme, _, key = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not key or len(key) > 512:
+        raise HTTPException(401, "Invalid API key", headers={"WWW-Authenticate": "Bearer"})
+    digest = _hash_token(key)
+    row = db.query(ApiKey).filter(ApiKey.token_hash == digest).one_or_none()
+    if row is not None:
+        if row.expires_at is not None and row.expires_at.replace(tzinfo=timezone.utc) <= _now():
+            raise HTTPException(401, "API key expired", headers={"WWW-Authenticate": "Bearer"})
+        if row.scope not in {"read", "write"}:
+            raise HTTPException(401, "Invalid API key")
+        if row.scope == "read" and request.method not in {"GET", "HEAD", "OPTIONS"}:
+            raise HTTPException(403, "This API key is read-only")
+        user = db.get(User, row.user_id)
+        if user is None:
+            raise HTTPException(401, "Invalid API key")
+        return user
+    scope = None
+    for name, permission in (("AI_API_READ_KEY_HASH", "read"), ("AI_API_WRITE_KEY_HASH", "write")):
+        configured = os.environ.get(name, "")
+        if configured and hmac.compare_digest(digest, configured):
+            scope = permission
+    if scope is None:
+        raise HTTPException(401, "Invalid API key", headers={"WWW-Authenticate": "Bearer"})
+    if scope == "read" and request.method not in {"GET", "HEAD", "OPTIONS"}:
+        raise HTTPException(403, "This API key is read-only")
+    try:
+        user_id = int(os.environ.get("AI_API_USER_ID", ""))
+    except ValueError:
+        raise HTTPException(401, "API key account is not configured")
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(401, "API key account is not configured")
     return user

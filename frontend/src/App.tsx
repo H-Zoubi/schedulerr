@@ -6,9 +6,10 @@ import { Week } from "./pages/Week";
 import { Inbox } from "./pages/Inbox";
 import { Kanban } from "./pages/Kanban";
 import { Habits } from "./pages/Habits";
+import { ApiKeys } from "./pages/ApiKeys";
 import { APP_VERSION } from "./version";
 
-type Tab = "today" | "week" | "inbox" | "kanban" | "habits";
+type Tab = "today" | "week" | "inbox" | "kanban" | "habits" | "access";
 type Theme = "system" | "light" | "dark";
 type Sidebar = "open" | "collapsed";
 type User = { id: number; email: string };
@@ -99,6 +100,10 @@ const TABS: { id: Tab; label: string; icon: JSX.Element }[] = [
         <path d="M8.5 12.5l2.5 2.5 4.5-5" />
       </svg>
     ),
+  },
+  {
+    id: "access", label: "AI access",
+    icon: <svg {...ICON_PROPS}><circle cx="8" cy="9" r="4" /><path d="M11 12l9 9M15 16l3-3M18 19l3-3" /></svg>,
   },
 ];
 
@@ -198,6 +203,7 @@ export function App() {
           {tab === "inbox" && <Inbox />}
           {tab === "kanban" && <Kanban />}
           {tab === "habits" && <Habits />}
+          {tab === "access" && <ApiKeys />}
         </main>
       </div>
 

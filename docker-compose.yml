@@ -23,6 +23,9 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080,http://localhost:5173}
       # The timezone the app's times are in. Reminders are compared against this.
       APP_TIMEZONE: ${APP_TIMEZONE:-UTC}
+      AI_API_USER_ID: ${AI_API_USER_ID:-}
+      AI_API_READ_KEY_HASH: ${AI_API_READ_KEY_HASH:-}
+      AI_API_WRITE_KEY_HASH: ${AI_API_WRITE_KEY_HASH:-}
       # Push notifications. Set NTFY_TOPIC and/or GOTIFY_URL with GOTIFY_TOKEN.
       NTFY_URL: ${NTFY_URL:-https://ntfy.sh}
       NTFY_TOPIC: ${NTFY_TOPIC:-}

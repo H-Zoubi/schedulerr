@@ -6,12 +6,12 @@ from pydantic import BaseModel, ConfigDict, model_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session as DBSession
 
-from .auth import current_user
+from .auth import api_user
 from .db import get_db
 from .models import Column, Event, Habit, HabitLog, Project, Reminder, Task, TaskBlock, TimeBlock, User
 from . import notifications
 
-router = APIRouter(dependencies=[Depends(current_user)])
+router = APIRouter(dependencies=[Depends(api_user)])
 
 TaskStatus = Literal["inbox", "planned", "doing", "done"]
 

@@ -76,11 +76,50 @@ The schema is managed by Alembic. After changing `models.py`, create a migration
   forwarded client-IP headers.
 - Backend login failure counters remain per-process and reset on restart. Use
   Cloudflare Access or edge rate limiting for protection across restarts or replicas.
-- API access currently has full single-user permissions. Do not give an untrusted
-  integration your session cookie.
+- Browser sessions have full single-user permissions. AI integrations can use
+  separate read-only or read/write API keys (see below).
 - To apply a committed update on a Docker host, rebuild with
   `docker compose up -d --build`. Back up the database first and verify the login
   screen shows `v0.1.1` afterward. A Git commit alone does not update the running API.
+
+## AI access to your planner
+
+Open **AI access** in the app to create a named key. Choose read-only or
+read/write permissions and an expiry (90 days by default). Copy the secret when
+it appears: it is only returned once and is never stored in the browser. The
+server stores its hash. Revoke a key on this page to stop access immediately.
+Only a signed-in browser session can manage keys; AI keys cannot create other keys.
+Apply migrations before running the updated backend (`python -m alembic upgrade head`);
+Docker applies them automatically on startup.
+
+For environment-managed keys, you can also generate a key from the project root:
+
+```powershell
+python backend/create_api_key.py --user-id 1
+```
+
+Use your account's actual ID (shown by `/auth/me` while signed in). The default
+key can read the planner. Add `--scope write` if your AI should also create,
+edit, and delete items. These permissions cover every `/api/` resource,
+including tasks, habits, projects, and reminders as well as the calendar.
+
+Save the printed secret in your AI client's credential storage. Add the printed
+`AI_API_USER_ID` and key hash settings to the root `.env` for Docker Compose.
+For a local backend, set these as environment variables before starting Uvicorn;
+the backend does not automatically load `.env`. No key is enabled until configured.
+Recreate the API container after configuration with `docker compose up -d --build api`.
+
+Your AI client sends `Authorization: Bearer YOUR_KEY` to your HTTPS planner URL.
+For example, `GET /api/week?start=2026-10-05` returns seven days of calendar items.
+The API schemas are available at the backend's `/docs` and `/openapi.json` routes
+(port 8000 locally); the production web proxy does not expose those routes.
+Calendar timestamps follow the planner's local timezone.
+
+Generate a replacement key and replace its hash to rotate access, or remove
+the hash to revoke access. Restart/recreate the backend afterward. Keep the raw
+secret out of Git and frontend code. This connects an AI to this project's
+planner; Google Calendar or Outlook integration would require a separate OAuth setup.
+Environment-managed keys are configured outside the app and do not appear in the UI.
 
 ## Layout
 

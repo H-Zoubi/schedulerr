@@ -1,8 +1,6 @@
 import { FormEvent, useState } from "react";
-import { ApiError, post } from "../api";
+import { ApiError, post, User } from "../api";
 import { APP_VERSION } from "../version";
-
-type User = { id: number; email: string };
 
 export function Login({ onLogin }: { onLogin: (user: User) => void }) {
   const [email, setEmail] = useState("");
@@ -18,34 +16,29 @@ export function Login({ onLogin }: { onLogin: (user: User) => void }) {
       onLogin(await post<User>("/auth/login", { email, password }));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not reach the server");
-    } finally {
       setBusy(false);
     }
   }
 
   return (
     <div className="login-wrap">
-      <form className="login card" onSubmit={submit}>
-        <div className="brand">
-          <span className="brand-mark" aria-hidden="true">S</span>
-          Schedulerr
+      <form className="login" onSubmit={submit}>
+        <div className="login-brand">
+          <span className="brand-mark lg">S</span>
+          <h1>Schedulerr</h1>
+          <span className="app-version">v{APP_VERSION}</span>
+          <p className="muted">Your week, your tasks, your habits — in one place.</p>
         </div>
-        <p className="sub">Plan your week, one block at a time.</p>
-        <span className="app-version">v{APP_VERSION}</span>
-
-        <label>
-          Email
-          <input type="email" autoComplete="username" value={email}
-            onChange={(e) => setEmail(e.target.value)} required autoFocus />
+        <label className="field">
+          <span>Email</span>
+          <input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
         </label>
-        <label>
-          Password
-          <input type="password" autoComplete="current-password" value={password}
-            onChange={(e) => setPassword(e.target.value)} required />
+        <label className="field">
+          <span>Password</span>
+          <input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
         </label>
-
-        {error && <div className="banner" role="alert">{error}</div>}
-        <button className="primary" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
+        {error && <div className="form-error" role="alert">{error}</div>}
+        <button className="btn primary lg" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
       </form>
     </div>
   );

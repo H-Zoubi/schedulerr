@@ -106,6 +106,8 @@ class Task(Base):
     duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     deadline: Mapped[date | None] = mapped_column(Date, nullable=True)
     position: Mapped[int] = mapped_column(Integer, default=0)
+    # 0 = none, 1 = low, 2 = medium, 3 = high.
+    priority: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 

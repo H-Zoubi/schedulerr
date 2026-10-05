@@ -73,12 +73,12 @@ export function ApiKeys() {
     } catch { setError("Copy unavailable. Select the key below and copy it manually."); }
   }
 
-  return <section className="api-access">
+  return <section className="page api-access">
     <div className="page-head"><div className="titles">
       <h1>AI access</h1>
       <div className="subtitle">Give your AI its own key to access your planner.</div>
     </div></div>
-    {error && <div className="banner" role="alert">{error}</div>}
+    {error && <div className="form-error" role="alert">{error}</div>}
     <div className="card access-connection">
       <h2>Connect your AI</h2>
       <p>Use this planner address in your AI integration:</p>
@@ -92,8 +92,8 @@ export function ApiKeys() {
       <label htmlFor="new-api-key">{created.name}</label>
       <input id="new-api-key" className="access-secret" readOnly value={created.key} onFocus={(e) => e.currentTarget.select()} autoComplete="off" spellCheck={false} />
       <div className="access-actions">
-        <button className="primary" onClick={copy}>{copied ? "Copied" : "Copy key"}</button>
-        <button onClick={() => setCreated(null)}>I've saved it</button>
+        <button className="btn primary" onClick={copy}>{copied ? "Copied" : "Copy key"}</button>
+        <button className="btn" onClick={() => setCreated(null)}>I've saved it</button>
         <span role="status" className="muted">{copied ? "Key copied to clipboard" : ""}</span>
       </div>
     </div>}
@@ -110,7 +110,7 @@ export function ApiKeys() {
       <select id="key-expiry" value={days} onChange={(e) => setDays(e.target.value)}>
         <option value="30">30 days</option><option value="90">90 days</option><option value="365">1 year</option><option value="never">Never</option>
       </select>
-      <button className="primary" disabled={busy || loading || !name.trim() || created !== null} type="submit">{busy ? "Working…" : "Create key"}</button>
+      <button className="btn primary" disabled={busy || loading || !name.trim() || created !== null} type="submit">{busy ? "Working…" : "Create key"}</button>
       {created && <p className="muted">Save and dismiss your new key before creating another.</p>}
     </form>
     <div className="access-list">
@@ -121,7 +121,7 @@ export function ApiKeys() {
             <code>{key.prefix}…</code>
             <p className="muted">{key.scope === "read" ? "Read only" : "Read and write"} · Created {dateLabel(key.created_at)} · {key.expires_at ? `${expired(key.expires_at) ? "Expired" : "Expires"} ${dateLabel(key.expires_at)}` : "Never expires"}</p>
           </div>
-          <button className="danger" disabled={busy} onClick={() => revoke(key)} aria-label={`Revoke ${key.name}`}>Revoke</button>
+          <button className="btn danger" disabled={busy} onClick={() => revoke(key)} aria-label={`Revoke ${key.name}`}>Revoke</button>
         </div>)}
     </div>
   </section>;

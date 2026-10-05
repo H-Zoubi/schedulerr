@@ -201,3 +201,30 @@ def test_complete_moves_task_to_done_column(client):
     assert done["done"] is True
     assert done["column_key"] == "done"
     assert done["project_id"] == proj["id"]
+
+
+def test_task_priority_defaults_and_updates(client):
+    task = client.post("/api/tasks", json={"title": "t"}).json()
+    assert task["priority"] == 0
+    updated = client.patch(f"/api/tasks/{task['id']}", json={"priority": 3}).json()
+    assert updated["priority"] == 3
+    assert client.patch(f"/api/tasks/{task['id']}", json={"priority": 9}).status_code == 422
+
+
+def test_list_task_blocks_with_range(client):
+    task = client.post("/api/tasks", json={"title": "t"}).json()
+    for day in ("2026-10-05", "2026-10-12"):
+        client.post("/api/task-blocks", json={"task_id": task["id"],
+                                              "start_at": f"{day}T09:00:00", "end_at": f"{day}T10:00:00"})
+    assert len(client.get("/api/task-blocks").json()) == 2
+    week = client.get("/api/task-blocks", params={"start": "2026-10-04", "end": "2026-10-10"}).json()
+    assert [b["start_at"][:10] for b in week] == ["2026-10-05"]
+
+
+def test_habit_history_lists_days_with_logs(client):
+    habit = client.post("/api/habits", json={"title": "Walk", "target_count": 3}).json()
+    window = {"start": "2026-10-01", "end": "2026-10-07"}
+    for day, delta in (("2026-10-02", 1), ("2026-10-02", 1), ("2026-10-03", 1), ("2026-10-03", -1)):
+        client.post(f"/api/habits/{habit['id']}/log", params=window, json={"logged_on": day, "delta": delta})
+    history = client.get("/api/habits/history", params=window).json()
+    assert history == [{"habit_id": habit["id"], "logged_on": "2026-10-02", "count": 2}]

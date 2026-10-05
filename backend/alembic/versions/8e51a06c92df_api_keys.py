@@ -2,8 +2,8 @@
 from alembic import op
 import sqlalchemy as sa
 
-revision = "c3d4e5f6a7b8"
-down_revision = "2de060fbaf08"
+revision = "8e51a06c92df"
+down_revision = "c3d4e5f6a7b8"
 branch_labels = None
 depends_on = None
 

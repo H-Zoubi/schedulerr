@@ -80,6 +80,8 @@ export type CalEvent = {
   start_at: string; // naive local "YYYY-MM-DDTHH:MM:SS"
   end_at: string;
   color: string;
+  location: string;
+  notes: string;
 };
 
 // Recurring weekly slot. weekday: 0 = Monday ... 6 = Sunday.

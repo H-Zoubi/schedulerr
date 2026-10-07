@@ -15,6 +15,10 @@ See [PLAN.md](PLAN.md) for the product plan and [DATA_MODEL.md](DATA_MODEL.md) f
 - **Command palette** (`⌘K` / `Ctrl+K`) searches tasks, events, boards and habits, and runs commands. Press `?` for every shortcut.
 - Task details open in a side drawer and save as you type. Priorities, deadlines, estimates, scheduled blocks and "next free slot".
 - Reminders per calendar item (ntfy / Gotify), light and dark themes, accent colours, 12/24-hour clock, Monday or Sunday week start.
+- Events can have a location (or a meeting link you can open) and notes.
+- Overlapping items are flagged with a red corner in the calendar and a note in Today. "Plan my day" and "Next free slot" keep a buffer between blocks (Settings → Calendar).
+- **Backup**: download everything as one JSON file and restore it from Settings → Backup. Docker also keeps nightly database dumps (see below).
+- **Calendar feed**: subscribe to your schedule from Apple Calendar, Google Calendar or Outlook (Settings → Calendar feed).
 
 ### How it stays fast
 
@@ -23,7 +27,7 @@ All data loads once, then every change is applied on screen immediately and sync
 ## Not done yet
 
 - Recurrence exceptions (moving one occurrence of a routine; moving a routine moves the series, with Undo)
-- Overlap warnings, import/export, backup, PWA install, offline mode
+- PWA install, offline mode
 
 ## Run it locally
 
@@ -89,6 +93,34 @@ The schema is managed by Alembic. After changing `models.py`, create a migration
 - To apply a committed update on a Docker host, rebuild with
   `docker compose up -d --build`. Back up the database first and verify the login
   screen shows `v0.1.1` afterward. A Git commit alone does not update the running API.
+
+## Backups
+
+- **In the app:** Settings → Backup → Download saves a JSON file of all planner data
+  (accounts, sessions and keys are not included). "Restore from a backup" replaces
+  everything with a file's contents. Restores go through `/api/import`, which Nginx
+  allows up to 20 MB.
+- **Nightly dumps (Docker):** the `backup` service runs `pg_dump` once a day into
+  `./backups` (set `BACKUP_DIR` to change it) and keeps the newest 14 (`BACKUP_KEEP`).
+  Restore one with:
+
+  ```bash
+  docker compose exec -T db pg_restore -U schedulerr -d schedulerr --clean --if-exists < backups/schedulerr-YYYYMMDD-HHMMSS.dump
+  ```
+
+  Copy `./backups` off the machine now and then; a dump on the same disk doesn't survive a disk failure.
+
+## Calendar feed
+
+Settings → Calendar feed → Create link gives a private `https://…/api/feed/<secret>.ics`
+URL. Add it as a subscribed calendar ("From URL" in Google Calendar, "New Calendar
+Subscription" in Apple Calendar). It includes events, routines (as weekly repeats)
+and scheduled task blocks from the last 90 days onward, read-only. Times use
+`APP_TIMEZONE`, so set it to your timezone (e.g. `Asia/Amman`). Calendar apps refresh
+subscriptions on their own schedule (Google can take several hours).
+
+Anyone with the link can read your schedule. "New link" replaces it (the old one stops
+working) and "Turn off" disables it. The link can't be used as an API key.
 
 ## API keys
 

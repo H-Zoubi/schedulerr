@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Anchor, ColorPicker, IconButton, Popover, TaskCheck } from "../../components/primitives";
 import { Icon } from "../../components/Icon";
-import { CalItem } from "../../lib/derive";
+import { CalItem, expandRange } from "../../lib/derive";
 import {
   createEvent, deleteEvent, deleteTaskBlock, deleteTimeBlock, reminderFor, setReminder,
-  toggleTaskDone, updateEvent, updateTaskBlock, updateTimeBlock, useData,
+  store, toggleTaskDone, updateEvent, updateTaskBlock, updateTimeBlock, useData,
 } from "../../store";
 import { atMinutes, backendWeekday, fmtDayLong, fmtDuration, parseDate, timeString } from "../../dates";
 import { openTask } from "../../lib/ui";
@@ -23,6 +23,17 @@ const REMINDERS = [
 
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
+function saveEventDetails(id: number, typed: { location: string; notes: string }) {
+  const current = store.get().events.find((e) => e.id === id);
+  if (!current) return;
+  const change = { location: typed.location.trim(), notes: typed.notes.trim() };
+  if (change.location !== current.location || change.notes !== current.notes) updateEvent(id, change);
+}
+
+export function isLink(value: string) {
+  return /^https?:\/\/\S+$/i.test(value.trim());
+}
+
 function toInput(m: number) {
   return timeString(m);
 }
@@ -39,6 +50,16 @@ export function ItemPopover({ item, anchor, onClose }: { item: CalItem; anchor: 
   const [title, setTitle] = useState(item.title);
 
   const ev = item.kind === "event" ? data.events.find((e) => e.id === item.id) : undefined;
+  const [location, setLocation] = useState(ev?.location ?? "");
+  const [notes, setNotes] = useState(ev?.notes ?? "");
+  const details = useRef({ location, notes });
+  details.current = { location, notes };
+
+  // Closing the popover doesn't always blur the field first, so save what was typed on the way out.
+  const eventId = ev?.id;
+  useEffect(() => () => {
+    if (eventId !== undefined) saveEventDetails(eventId, details.current);
+  }, [eventId]);
   const tb = item.kind === "time" ? data.timeBlocks.find((b) => b.id === item.id) : undefined;
   const block = item.kind === "task_block" ? data.taskBlocks.find((b) => b.id === item.id) : undefined;
   const task = block ? data.tasks.find((t) => t.id === block.task_id) : undefined;
@@ -58,6 +79,10 @@ export function ItemPopover({ item, anchor, onClose }: { item: CalItem; anchor: 
     if (tb) updateTimeBlock(tb.id, { title: t });
   }
 
+  function saveDetails() {
+    if (ev) saveEventDetails(ev.id, { location, notes });
+  }
+
   function remove() {
     onClose();
     if (ev) deleteEvent(ev);
@@ -68,10 +93,12 @@ export function ItemPopover({ item, anchor, onClose }: { item: CalItem; anchor: 
   function duplicate() {
     if (!ev) return;
     onClose();
-    createEvent({ title: ev.title, start_at: ev.start_at, end_at: ev.end_at, color: ev.color });
+    createEvent({ title: ev.title, start_at: ev.start_at, end_at: ev.end_at, color: ev.color, location: ev.location, notes: ev.notes });
   }
 
   const color = ev?.color ?? tb?.color ?? item.color;
+  const clashing = item.done ? [] : (expandRange(item.date, item.date, data).get(item.date) ?? [])
+    .filter((o) => o.key !== item.key && !o.done && o.start < item.end && item.start < o.end);
 
   return (
     <Popover anchor={anchor} onClose={onClose} placement="right" width={320} className="item-pop">
@@ -146,7 +173,32 @@ export function ItemPopover({ item, anchor, onClose }: { item: CalItem; anchor: 
             {REMINDERS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
         </div>
+        {clashing.length > 0 && (
+          <div className="pop-line pop-conflict" role="status">
+            <Icon name="flag" size={15} />
+            <span>Overlaps {clashing.map((o) => `“${o.title}”`).join(", ")}</span>
+          </div>
+        )}
       </div>
+
+      {ev && (
+        <div className="pop-details">
+          <div className="pop-line">
+            <Icon name={isLink(location) ? "link" : "pin"} size={15} />
+            <input className="pop-location" value={location} placeholder="Add location or link" aria-label="Location"
+              maxLength={300} onChange={(e) => setLocation(e.target.value)} onBlur={saveDetails}
+              onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
+            {isLink(location) && (
+              <a className="btn sm ghost" href={location.trim()} target="_blank" rel="noopener noreferrer">Open</a>
+            )}
+          </div>
+          <div className="pop-line pop-notes-line">
+            <Icon name="notes" size={15} />
+            <textarea className="pop-notes" value={notes} placeholder="Add notes" aria-label="Notes" rows={2}
+              maxLength={5000} onChange={(e) => setNotes(e.target.value)} onBlur={saveDetails} />
+          </div>
+        </div>
+      )}
 
       {(ev || tb) && (
         <ColorPicker value={color} onChange={(c) => {

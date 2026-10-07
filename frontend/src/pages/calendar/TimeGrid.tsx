@@ -4,7 +4,7 @@ import {
 } from "react";
 import { Anchor, anchorOf, TaskCheck } from "../../components/primitives";
 import { Icon } from "../../components/Icon";
-import { CalItem, layoutDay } from "../../lib/derive";
+import { CalItem, conflicts, layoutDay } from "../../lib/derive";
 import { Task } from "../../api";
 import {
   atMinutes, backendWeekday, fmtHour, fmtRange, fmtTime, nowMinutes, parseDate, timeString, todayIso,
@@ -338,6 +338,11 @@ export function TimeGrid({
     for (const d of days) m.set(d, layoutDay(items.get(d) ?? []));
     return m;
   }, [days, items]);
+  const clashes = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const d of days) m.set(d, conflicts(items.get(d) ?? []));
+    return m;
+  }, [days, items]);
 
   const dragKey = ghost?.key && gesture.current?.active ? ghost.key : null;
   const routinesLocked = !usePrefs((p) => p.routinesDraggable);
@@ -377,7 +382,7 @@ export function TimeGrid({
             <div className="tg-now-all" style={{ top: (now / 60) * hourHeight }} aria-hidden="true" />
           )}
           {days.map((d) => (
-            <DayColumn key={d} date={d} items={items.get(d)} layout={layouts.get(d)!} hourHeight={hourHeight}
+            <DayColumn key={d} date={d} items={items.get(d)} layout={layouts.get(d)!} clashes={clashes.get(d)!} hourHeight={hourHeight}
               isToday={d === today} now={d === today ? now : -1}
               ghost={ghost && ghost.date === d ? ghost : creating && creating.date === d ? { ...creating, title: "", color: "var(--accent)", kind: "new" } : null}
               dragKey={dragKey} selectedKey={selectedKey} routinesLocked={routinesLocked}
@@ -438,11 +443,12 @@ const DayHeader = memo(function DayHeader({ date, today, due, onDayClick, onDueD
 });
 
 const DayColumn = memo(function DayColumn({
-  date, items, layout, hourHeight, isToday, now, ghost, dragKey, selectedKey, routinesLocked, colRef, onBodyDown, onItemDown,
+  date, items, layout, clashes, hourHeight, isToday, now, ghost, dragKey, selectedKey, routinesLocked, colRef, onBodyDown, onItemDown,
 }: {
   date: string;
   items?: CalItem[];
   layout: Map<string, { lane: number; lanes: number }>;
+  clashes: Set<string>;
   hourHeight: number;
   isToday: boolean;
   now: number;
@@ -466,7 +472,7 @@ const DayColumn = memo(function DayColumn({
         const l = layout.get(it.key) ?? { lane: 0, lanes: 1 };
         return (
           <EventBlock key={it.key} item={it} lane={l.lane} lanes={l.lanes} hourHeight={hourHeight}
-            dragging={dragKey === it.key} selected={selectedKey === it.key}
+            dragging={dragKey === it.key} selected={selectedKey === it.key} conflict={clashes.has(it.key)}
             locked={routinesLocked && it.kind === "time"} onDown={onItemDown} />
         );
       })}
@@ -485,8 +491,8 @@ const DayColumn = memo(function DayColumn({
   );
 });
 
-const EventBlock = memo(function EventBlock({ item, lane, lanes, hourHeight, dragging, selected, locked, onDown }: {
-  item: CalItem; lane: number; lanes: number; hourHeight: number; dragging: boolean; selected: boolean; locked: boolean;
+const EventBlock = memo(function EventBlock({ item, lane, lanes, hourHeight, dragging, selected, conflict, locked, onDown }: {
+  item: CalItem; lane: number; lanes: number; hourHeight: number; dragging: boolean; selected: boolean; conflict: boolean; locked: boolean;
   onDown: (e: RPointerEvent, item: CalItem, resize: boolean) => void;
 }) {
   const top = (item.start / 60) * hourHeight;
@@ -502,9 +508,10 @@ const EventBlock = memo(function EventBlock({ item, lane, lanes, hourHeight, dra
   const task = item.kind === "task_block" && item.taskId !== undefined
     ? store.get().tasks.find((t) => t.id === item.taskId) : undefined;
   return (
-    <div className={`ev kind-${item.kind}` + (compact ? " compact" : "") + (dragging ? " dragging" : "") + (selected ? " selected" : "") + (item.done ? " done" : "") + (locked ? " locked" : "")}
+    <div className={`ev kind-${item.kind}` + (compact ? " compact" : "") + (dragging ? " dragging" : "") + (selected ? " selected" : "") + (item.done ? " done" : "") + (locked ? " locked" : "") + (conflict ? " conflict" : "")}
       style={style} data-key={item.key} tabIndex={0} role="button"
-      aria-label={`${item.title}, ${fmtRange(item.start, item.end)}`}
+      aria-label={`${item.title}, ${fmtRange(item.start, item.end)}${conflict ? ", overlaps another item" : ""}`}
+      title={conflict ? "Overlaps another item" : undefined}
       onPointerDown={(e) => onDown(e, item, false)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -522,6 +529,7 @@ const EventBlock = memo(function EventBlock({ item, lane, lanes, hourHeight, dra
             {item.title}
           </span>
           {!compact && <span className="ev-time">{fmtRange(item.start, item.end)}</span>}
+          {!compact && item.location && height >= 46 && <span className="ev-where">{item.location}</span>}
         </div>
       </div>
       {!locked && <div className="ev-resize" onPointerDown={(e) => onDown(e, item, true)} aria-hidden="true" />}

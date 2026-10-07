@@ -50,7 +50,8 @@ class CreatedKey(KeyOut):
 
 @router.get("", response_model=list[KeyOut])
 def list_keys(user: User = Depends(key_owner), db: Session = Depends(get_db)):
-    return db.query(ApiKey).filter(ApiKey.user_id == user.id).order_by(ApiKey.id.desc()).all()
+    return (db.query(ApiKey).filter(ApiKey.user_id == user.id, ApiKey.scope != "feed")
+            .order_by(ApiKey.id.desc()).all())
 
 
 @router.post("", response_model=CreatedKey, status_code=201)

@@ -13,7 +13,7 @@ from .auth import (
     password_needs_rehash,
     verify_password,
 )
-from . import api_keys, routes
+from . import api_keys, portability, routes
 from .db import get_db
 from .models import User
 from .security import OriginCheck, login_keys, login_limiter
@@ -24,6 +24,9 @@ app = FastAPI(title="Schedulerr API")
 app.add_middleware(OriginCheck)
 app.include_router(routes.router, prefix="/api")
 app.include_router(api_keys.router)
+app.include_router(portability.export_router, prefix="/api")
+app.include_router(portability.feed_router, prefix="/api")
+app.include_router(portability.feed_admin)
 
 
 @app.middleware("http")

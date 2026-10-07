@@ -1,6 +1,6 @@
 from datetime import date, datetime, time
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Time, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text, Time, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -63,6 +63,8 @@ class Event(Base):
     start_at: Mapped[datetime] = mapped_column(DateTime)
     end_at: Mapped[datetime] = mapped_column(DateTime)
     color: Mapped[str] = mapped_column(String(20), default="#0891b2")
+    location: Mapped[str] = mapped_column(String(300), default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
 
 
 class Project(Base):

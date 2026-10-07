@@ -201,6 +201,7 @@ kbd, .kbd {
   font-weight: 550; font-size: 13px; white-space: nowrap;
   transition: background 0.12s, border-color 0.12s, transform 0.08s, opacity 0.12s;
 }
+a.btn { color: var(--text); text-decoration: none; }
 .btn:hover:not(:disabled) { background: var(--surface-2); }
 .btn:active:not(:disabled) { transform: translateY(0.5px) scale(0.985); }
 .btn:disabled { opacity: 0.45; }
@@ -785,7 +786,14 @@ select.btn { padding-right: 26px; min-height: 0; }
 .ev-title { font-size: 12px; font-weight: 600; line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; word-break: break-word; }
 .ev-icon { display: inline-block; vertical-align: -1px; margin-right: 3px; opacity: 0.8; }
 .ev-time { font-size: 11px; opacity: 0.75; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ev-where { font-size: 11px; opacity: 0.75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ev.compact { padding-top: 1px; padding-bottom: 0; }
+/* Overlaps another item: a warning notch in the top-right corner. */
+.ev.conflict::after {
+  content: ""; position: absolute; top: 0; right: 0; width: 0; height: 0;
+  border-style: solid; border-width: 0 9px 9px 0; border-color: transparent var(--danger) transparent transparent;
+  border-top-right-radius: 5px;
+}
 .ev.compact .ev-title { -webkit-line-clamp: 1; font-size: 11.5px; }
 .ev.compact .ev-inner .task-check { width: 12px; height: 12px; }
 .ev-resize { position: absolute; left: 0; right: 0; bottom: 0; height: 7px; cursor: ns-resize; touch-action: none; }
@@ -821,6 +829,14 @@ select.btn { padding-right: 26px; min-height: 0; }
 .pop-line input, .pop-line select { min-height: 30px; padding: 3px 8px; font-size: 13px; }
 .pop-line select { padding-right: 24px; }
 .pop-note { line-height: 1.4; }
+.pop-details { display: flex; flex-direction: column; gap: 6px; }
+.pop-details .pop-line { flex-wrap: nowrap; }
+.pop-location { flex: 1; min-width: 0; }
+.pop-notes-line { align-items: flex-start; }
+.pop-notes-line > .icon-svg { margin-top: 7px; }
+.pop-notes { flex: 1; min-width: 0; min-height: 30px; padding: 5px 8px; font-size: 13px; max-height: 160px; field-sizing: content; }
+.pop-conflict { color: var(--danger); }
+.pop-conflict > .icon-svg { color: var(--danger); }
 .pop-actions { display: flex; justify-content: space-between; gap: 8px; }
 
 /* Month */
@@ -1002,6 +1018,8 @@ select.btn { padding-right: 26px; min-height: 0; }
 .agenda-bar { width: 3px; border-radius: 2px; background: var(--c); flex: none; }
 .agenda-text { display: flex; flex-direction: column; min-width: 0; }
 .agenda-title { font-weight: 560; display: flex; align-items: center; gap: 4px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.agenda-conflict { font-size: 11.5px; font-weight: 600; color: var(--danger); }
+.agenda-text > .muted { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .agenda-item.past { opacity: 0.5; }
 .agenda-item.live .agenda-body { box-shadow: inset 0 0 0 1.5px var(--c); }
 .agenda-item.live .agenda-time { color: var(--now); font-weight: 650; }
@@ -1163,6 +1181,8 @@ select.btn { padding-right: 26px; min-height: 0; }
 .settings-label span { font-weight: 550; }
 .settings-control { display: flex; align-items: center; gap: 8px; }
 .status-pill { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 99px; background: var(--surface-3); color: var(--text-2); }
+.restore-warning { color: var(--danger); font-weight: 550; line-height: 1.5; }
+.feed-reveal p { margin: 0 0 8px; line-height: 1.5; }
 .status-pill.ok { background: var(--success-soft); color: var(--success); }
 
 /* ==========================================================================

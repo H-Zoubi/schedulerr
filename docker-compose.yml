@@ -37,6 +37,37 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Nightly database dump into ./backups, keeping the newest BACKUP_KEEP files.
+  backup:
+    image: postgres:16
+    environment:
+      PGHOST: db
+      PGUSER: schedulerr
+      PGDATABASE: schedulerr
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      BACKUP_KEEP: ${BACKUP_KEEP:-14}
+      BACKUP_EVERY_SECONDS: ${BACKUP_EVERY_SECONDS:-86400}
+    volumes:
+      - ${BACKUP_DIR:-./backups}:/backups
+    entrypoint:
+      - sh
+      - -c
+      - |
+        while true; do
+          file=/backups/schedulerr-$$(date +%Y%m%d-%H%M%S).dump
+          if pg_dump --format=custom --file="$$file.tmp"; then
+            mv "$$file.tmp" "$$file" && echo "Backed up to $$file"
+          else
+            rm -f "$$file.tmp"; echo "Backup failed" >&2
+          fi
+          ls -1t /backups/schedulerr-*.dump 2>/dev/null | tail -n +$$((BACKUP_KEEP + 1)) | xargs -r rm -f
+          sleep "$$BACKUP_EVERY_SECONDS"
+        done
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
   web:
     build: ./frontend
     ports:

@@ -13,6 +13,7 @@ export type Prefs = {
   hourHeight: number;         // px per hour in the calendar grid
   workStart: number;          // minutes after midnight, used for scroll position and auto-planning
   workEnd: number;
+  bufferMinutes: number;      // kept free between blocks by "Plan my day" and "Next free slot"
   calView: CalView;
   sidebarCollapsed: boolean;
   calSidebar: boolean;
@@ -51,6 +52,7 @@ const DEFAULTS: Prefs = {
   hourHeight: 52,
   workStart: 9 * 60,
   workEnd: 18 * 60,
+  bufferMinutes: 5,
   calView: typeof window !== "undefined" && window.innerWidth < 720 ? "day" : "week",
   sidebarCollapsed: false,
   calSidebar: true,

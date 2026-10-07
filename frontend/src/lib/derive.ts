@@ -18,6 +18,7 @@ export type CalItem = {
   taskId?: number;
   done?: boolean;
   priority?: number;
+  location?: string;
 };
 
 export const TASK_COLOR = "#7c8597";
@@ -54,7 +55,7 @@ export function expandRange(
     const endDay = ev.end_at.slice(0, 10);
     const start = minutesOfIso(ev.start_at);
     const end = endDay > day ? 24 * 60 : minutesOfIso(ev.end_at);
-    push({ key: `event-${ev.id}`, kind: "event", id: ev.id, date: day, start, end: Math.max(end, start + 15), title: ev.title, color: ev.color });
+    push({ key: `event-${ev.id}`, kind: "event", id: ev.id, date: day, start, end: Math.max(end, start + 15), title: ev.title, color: ev.color, location: ev.location || undefined });
   }
 
   const tasks = new Map(data.tasks.map((t) => [t.id, t]));
@@ -109,14 +110,31 @@ export function layoutDay(items: CalItem[]): Map<string, { lane: number; lanes: 
   return result;
 }
 
+// Keys of items that overlap another item on the same day. Completed task blocks don't count.
+export function conflicts(items: CalItem[]): Set<string> {
+  const live = items.filter((i) => !i.done).sort((a, b) => a.start - b.start);
+  const out = new Set<string>();
+  for (let i = 0; i < live.length; i++) {
+    for (let j = i + 1; j < live.length && live[j].start < live[i].end; j++) {
+      out.add(live[i].key);
+      out.add(live[j].key);
+    }
+  }
+  return out;
+}
+
 // Free gaps between `from` and `to` minutes on one day, ignoring gaps shorter than `min`.
-export function freeGaps(items: CalItem[], from: number, to: number, min = 15): { start: number; end: number }[] {
-  const busy = items.filter((i) => i.end > from && i.start < to).sort((a, b) => a.start - b.start);
+// `buffer` keeps that many minutes clear after and before each busy item.
+export function freeGaps(
+  items: CalItem[], from: number, to: number, min = 15, buffer = 0,
+): { start: number; end: number }[] {
+  const busy = items.filter((i) => i.end + buffer > from && i.start - buffer < to).sort((a, b) => a.start - b.start);
   const gaps: { start: number; end: number }[] = [];
   let cursor = from;
   for (const it of busy) {
-    if (it.start - cursor >= min) gaps.push({ start: cursor, end: it.start });
-    cursor = Math.max(cursor, it.end);
+    const end = Math.min(to, it.start - buffer);
+    if (end - cursor >= min) gaps.push({ start: cursor, end });
+    cursor = Math.max(cursor, it.end + buffer);
   }
   if (to - cursor >= min) gaps.push({ start: cursor, end: to });
   return gaps;

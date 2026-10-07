@@ -485,10 +485,11 @@ export function deleteTaskBlock(block: TaskBlock, title: string) {
 
 // ---------- Events ----------
 
-export type EventDraft = Omit<CalEvent, "id">;
+export type EventDraft = Omit<CalEvent, "id" | "location" | "notes"> & Partial<Pick<CalEvent, "location" | "notes">>;
 
 export function createEvent(draft: EventDraft): CalEvent {
-  return create("events", draft, () => post<CalEvent>("/api/events", draft));
+  const body = { location: "", notes: "", ...draft };
+  return create("events", body, () => post<CalEvent>("/api/events", body));
 }
 
 export function updateEvent(id: number, change: Partial<EventDraft>) {
@@ -497,6 +498,7 @@ export function updateEvent(id: number, change: Partial<EventDraft>) {
   const body = { ...current, ...change };
   return mutate("events", id, change, (rid) => patch<CalEvent>(`/api/events/${rid}`, {
     title: body.title, start_at: body.start_at, end_at: body.end_at, color: body.color,
+    location: body.location ?? "", notes: body.notes ?? "",
   })).catch(() => undefined);
 }
 

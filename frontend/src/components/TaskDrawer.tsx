@@ -38,7 +38,7 @@ export function TaskDrawer({ taskId }: { taskId: number }) {
 
 function TaskDetail({ task }: { task: Task }) {
   const data = useData();
-  const { workStart, workEnd } = usePrefs();
+  const { workStart, workEnd, bufferMinutes } = usePrefs();
   const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.notes);
   const [customEstimate, setCustomEstimate] = useState(false);
@@ -87,11 +87,11 @@ function TaskDetail({ task }: { task: Task }) {
     for (let i = 0; i < 7; i++) {
       const day = addDaysIso(today, i);
       const from = i === 0 ? Math.max(workStart, Math.ceil((nowMinutes() + 5) / 15) * 15) : workStart;
-      const gap = freeGaps(items.get(day) ?? [], from, workEnd, duration)[0];
+      const gap = freeGaps(items.get(day) ?? [], from, workEnd, duration, bufferMinutes)[0];
       if (gap) return { day, start: gap.start };
     }
     return null;
-  }, [data, today, duration, workStart, workEnd]);
+  }, [data, today, duration, workStart, workEnd, bufferMinutes]);
 
   function schedule(day: string, start: number) {
     scheduleTask(task, atMinutes(day, start), atMinutes(day, Math.min(start + duration, 24 * 60 - 1)));

@@ -165,6 +165,8 @@ class EventIn(BaseModel):
     start_at: datetime
     end_at: datetime
     color: str = "#0891b2"
+    location: str = Field(default="", max_length=300)
+    notes: str = Field(default="", max_length=5000)
 
     @model_validator(mode="after")
     def _end_after_start(self):

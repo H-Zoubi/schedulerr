@@ -7,6 +7,7 @@ import { setShortcuts } from "../lib/ui";
 import { toast, toastError } from "../lib/toast";
 import { timeString } from "../dates";
 import { ApiKeys } from "./ApiKeys";
+import { DataSettings } from "./DataSettings";
 
 const HOURS = Array.from({ length: 25 }, (_, h) => h * 60);
 
@@ -79,6 +80,11 @@ export function Settings({ user, onLogout }: { user: User; onLogout: () => void 
             </select>
           </div>
         </Row>
+        <Row label="Buffer between blocks" hint="Free time kept around existing items when “Plan my day” and “Next free slot” pick a time.">
+          <Segmented label="Buffer between blocks" value={String(p.bufferMinutes) as "0" | "5" | "10" | "15"}
+            onChange={(v) => setPref("bufferMinutes", Number(v))}
+            options={[{ value: "0", label: "None" }, { value: "5", label: "5 min" }, { value: "10", label: "10 min" }, { value: "15", label: "15 min" }]} />
+        </Row>
         <Row label="Drag routines" hint="Routines repeat every week, so they stay put unless you allow dragging. You can always change their time from the item’s details.">
           <Segmented label="Drag routines" value={p.routinesDraggable ? "on" : "off"}
             onChange={(v) => setPref("routinesDraggable", v === "on")}
@@ -102,6 +108,8 @@ export function Settings({ user, onLogout }: { user: User; onLogout: () => void 
           </div>
         </Row>
       </section>
+
+      <DataSettings />
 
       <ApiKeys />
 

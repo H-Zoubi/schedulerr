@@ -3,7 +3,7 @@ import { Task } from "../api";
 import { Anchor, anchorOf, Empty, Popover, TaskCheck } from "../components/primitives";
 import { Icon } from "../components/Icon";
 import { TaskRow } from "../components/TaskRow";
-import { blocksByTask, CalItem, compareTasks, countIn, expandRange, freeGaps, habitWindow, logIndex, nextBlock } from "../lib/derive";
+import { blocksByTask, CalItem, compareTasks, conflicts, countIn, expandRange, freeGaps, habitWindow, logIndex, nextBlock } from "../lib/derive";
 import { navigate } from "../lib/router";
 import { openQuickAdd, openTask } from "../lib/ui";
 import { usePrefs } from "../lib/prefs";
@@ -15,7 +15,7 @@ type Suggestion = { task: Task; start: number; end: number };
 
 export function Today() {
   const data = useData();
-  const { workStart, workEnd } = usePrefs();
+  const { workStart, workEnd, bufferMinutes } = usePrefs();
   const [now, setNow] = useState(nowMinutes);
   const [plan, setPlan] = useState<Suggestion[] | null>(null);
   const [gapPicker, setGapPicker] = useState<{ gap: { start: number; end: number }; anchor: Anchor } | null>(null);
@@ -59,13 +59,14 @@ export function Today() {
 
   function planDay() {
     const out: Suggestion[] = [];
-    const free = gaps.map((g) => ({ ...g }));
+    // Plan into gaps that keep the buffer clear around what's already scheduled.
+    const free = freeGaps(items, from, Math.max(workEnd, from), 20, bufferMinutes);
     for (const task of unscheduled) {
       const need = task.duration_minutes ?? 30;
       const gap = free.find((g) => g.end - g.start >= need);
       if (!gap) continue;
       out.push({ task, start: gap.start, end: gap.start + need });
-      gap.start += need + 5; // a short buffer between blocks
+      gap.start += need + bufferMinutes;
       if (out.length >= 6) break;
     }
     if (!out.length) toast(unscheduled.length ? "No free gap is long enough today." : "No unscheduled tasks to plan.");
@@ -83,6 +84,7 @@ export function Today() {
   const pct = totalToday ? Math.round((doneToday / totalToday) * 100) : 0;
 
   // Agenda: items interleaved with free gaps.
+  const clashes = conflicts(items);
   const agenda: ({ type: "item"; item: CalItem } | { type: "gap"; start: number; end: number })[] = [];
   const gapList = [...gaps];
   for (const item of items) {
@@ -163,7 +165,7 @@ export function Today() {
                 </button>
               </li>
             ) : (
-              <AgendaItem key={a.item.key} item={a.item} now={now} />
+              <AgendaItem key={a.item.key} item={a.item} now={now} conflict={clashes.has(a.item.key)} />
             ))}
           </ol>
         </section>
@@ -257,7 +259,7 @@ function NowCard({ current, next, now }: { current?: CalItem; next?: CalItem; no
   );
 }
 
-function AgendaItem({ item, now }: { item: CalItem; now: number }) {
+function AgendaItem({ item, now, conflict }: { item: CalItem; now: number; conflict: boolean }) {
   const past = item.end <= now;
   const live = item.start <= now && item.end > now;
   const task = item.taskId !== undefined ? store.get().tasks.find((t) => t.id === item.taskId) : undefined;
@@ -271,7 +273,11 @@ function AgendaItem({ item, now }: { item: CalItem; now: number }) {
           <span className="agenda-title">
             {item.kind === "time" && <Icon name="repeat" size={12} />} {item.title}
           </span>
-          <span className="muted small">{fmtRange(item.start, item.end)} · {fmtDuration(item.end - item.start)}</span>
+          <span className="muted small">
+            {fmtRange(item.start, item.end)} · {fmtDuration(item.end - item.start)}
+            {item.location && <> · {item.location}</>}
+          </span>
+          {conflict && <span className="agenda-conflict">Overlaps another item</span>}
         </span>
       </button>
       {task && <TaskCheck done={task.done} priority={task.priority} onToggle={() => toggleTaskDone(task)} label="Complete" />}

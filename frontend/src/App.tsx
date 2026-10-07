@@ -12,6 +12,7 @@ import { IconButton, Kbd, Toaster } from "./components/primitives";
 import { QuickAdd } from "./components/QuickAdd";
 import { TaskDrawer } from "./components/TaskDrawer";
 import { CommandPalette } from "./components/CommandPalette";
+import { ScopeDialog } from "./components/ScopeDialog";
 import { ShortcutsSheet, useGlobalShortcuts } from "./components/Shortcuts";
 import { BoardDialog } from "./components/BoardDialog";
 import { flushDeletes, loadAll, refreshIfStale, resetStore, useData } from "./store";
@@ -108,6 +109,7 @@ function Shell({ user, onLogout, loadError }: { user: User; onLogout: () => void
       {overlays.taskId !== null && <TaskDrawer taskId={overlays.taskId} />}
       {overlays.palette && <CommandPalette />}
       {overlays.shortcuts && <ShortcutsSheet />}
+      {overlays.scope && <ScopeDialog request={overlays.scope} />}
       <Toaster />
     </div>
   );

@@ -3,6 +3,7 @@ import { Dialog, Kbd, Segmented } from "./primitives";
 import { Icon } from "./Icon";
 import { closeQuickAdd, openTask, QuickAddMode, QuickAddPrefill } from "../lib/ui";
 import { matchProject, parseQuickAdd } from "../lib/nlp";
+import { repeatLabel } from "../lib/derive";
 import { createEvent, createTask, createTimeBlock, currentId, scheduleTask, useData } from "../store";
 import { atMinutes, backendWeekday, fmtDuration, fmtRange, parseDate, relDay, todayIso, timeString } from "../dates";
 import { navigate } from "../lib/router";
@@ -44,6 +45,10 @@ export function QuickAdd({ prefill }: { prefill: QuickAddPrefill }) {
   const evEnd = parsed.end ?? (duration ? evStart + duration : (prefill.end ?? evStart + 60));
   const weekdays = parsed.weekdays ?? [backendWeekday(parseDate(date))];
   const title = parsed.title.trim();
+  // A routine can repeat every N weeks; a task can repeat on any interval.
+  const intervalWeeks = parsed.repeat?.unit === "week" ? parsed.repeat.every : 1;
+  const taskDeadline = parsed.deadline ?? (start === undefined && parsed.date ? parsed.date : null)
+    ?? (parsed.repeat ? todayIso() : null);
 
   function submit(keepOpen: boolean) {
     if (!title) return;
@@ -53,9 +58,11 @@ export function QuickAdd({ prefill }: { prefill: QuickAddPrefill }) {
         title,
         project_id: project?.id ?? null,
         column_id: sameBoardColumn ?? null,
-        deadline: parsed.deadline ?? (start === undefined && parsed.date ? parsed.date : null),
+        deadline: taskDeadline,
         duration_minutes: duration ?? null,
         priority: parsed.priority ?? 0,
+        repeat_every: parsed.repeat?.every ?? null,
+        repeat_unit: parsed.repeat?.unit ?? null,
         position: sameBoardColumn ? 10_000 + Date.now() % 10_000 : 0,
       });
       if (start !== undefined) {
@@ -72,7 +79,7 @@ export function QuickAdd({ prefill }: { prefill: QuickAddPrefill }) {
       for (const wd of weekdays) {
         createTimeBlock({
           title, weekday: wd, start_time: timeString(s) + ":00", end_time: timeString(Math.min(e, 24 * 60 - 1)) + ":00",
-          start_date: date, until_date: null, color: project?.color ?? "#8e4ec6",
+          start_date: date, until_date: null, color: project?.color ?? "#8e4ec6", interval_weeks: intervalWeeks,
         });
       }
       if (!keepOpen) toast(`Added routine “${title}”`);
@@ -89,7 +96,8 @@ export function QuickAdd({ prefill }: { prefill: QuickAddPrefill }) {
   if (effectiveMode === "task") {
     if (project) chips.push({ icon: "hash", label: project.name });
     if (start !== undefined) chips.push({ icon: "calendar", label: `${relDay(date)} · ${fmtRange(start, start + (duration ?? 60))}` });
-    const deadline = parsed.deadline ?? (start === undefined ? parsed.date : undefined);
+    const deadline = taskDeadline;
+    if (parsed.repeat) chips.push({ icon: "repeat", label: repeatLabel(parsed.repeat.every, parsed.repeat.unit) });
     if (deadline) chips.push({ icon: "flag", label: `Due ${relDay(deadline)}`, tone: deadline < todayIso() ? "danger" : undefined });
     if (duration && start === undefined) chips.push({ icon: "clock", label: fmtDuration(duration) });
     if (parsed.priority) chips.push({ icon: "flag", label: `${PRIORITY_NAMES[parsed.priority]} priority`, tone: `p${parsed.priority}` });
@@ -97,7 +105,8 @@ export function QuickAdd({ prefill }: { prefill: QuickAddPrefill }) {
     chips.push({ icon: "calendar", label: relDay(date) });
     chips.push({ icon: "clock", label: `${fmtRange(evStart, evEnd)} · ${fmtDuration(evEnd - evStart)}` });
   } else {
-    chips.push({ icon: "repeat", label: weekdays.length === 7 ? "Every day" : `Every ${weekdays.map((w) => WEEKDAY_NAMES[w]).join(", ")}` });
+    const every = intervalWeeks > 1 ? `Every ${intervalWeeks} weeks on` : "Every";
+    chips.push({ icon: "repeat", label: weekdays.length === 7 && intervalWeeks === 1 ? "Every day" : `${every} ${weekdays.map((w) => WEEKDAY_NAMES[w]).join(", ")}` });
     const s = start ?? 9 * 60;
     chips.push({ icon: "clock", label: fmtRange(s, parsed.end ?? s + (duration ?? 60)) });
   }

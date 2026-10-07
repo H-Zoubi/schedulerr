@@ -20,6 +20,7 @@ import httpx
 from sqlalchemy.orm import Session as DBSession
 
 from .models import Event, Reminder, ReminderSent, Task, TaskBlock, TimeBlock
+from .recurrence import exceptions_by_block, expand
 
 log = logging.getLogger("schedulerr.notifications")
 
@@ -92,19 +93,11 @@ def _occurrences(db: DBSession, kind: str, now: datetime):
             yield block.id, title, block.start_at
 
     elif kind == "time_block":
-        day = low.date()
-        while day <= high.date():
-            blocks = (db.query(TimeBlock)
-                      .filter(TimeBlock.weekday == day.weekday(),
-                              TimeBlock.start_date <= day)
-                      .all())
-            for b in blocks:
-                if b.until_date is not None and b.until_date < day:
-                    continue
-                start = datetime.combine(day, b.start_time)
-                if low <= start <= high:
-                    yield b.id, b.title, start
-            day += timedelta(days=1)
+        # Skipped occurrences don't remind; moved ones remind at their new time.
+        for o in expand(db.query(TimeBlock).all(), exceptions_by_block(db), low.date(), high.date()):
+            start = datetime.combine(o.date, o.start_time)
+            if low <= start <= high:
+                yield o.block.id, o.block.title, start
 
 
 def _message(start: datetime, minutes_before: int) -> str:

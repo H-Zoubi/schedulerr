@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { Anchor, ColorPicker, IconButton, Popover, TaskCheck } from "../../components/primitives";
+import { Anchor, ColorPicker, IconButton, Popover, Segmented, TaskCheck } from "../../components/primitives";
 import { Icon } from "../../components/Icon";
 import { CalItem, expandRange } from "../../lib/derive";
 import {
-  createEvent, deleteEvent, deleteTaskBlock, deleteTimeBlock, reminderFor, setReminder,
+  changeOccurrence, createEvent, deleteEvent, deleteRoutineAt, deleteTaskBlock, reminderFor, restoreOccurrence,
+  setReminder, splitRoutine,
   store, toggleTaskDone, updateEvent, updateTaskBlock, updateTimeBlock, useData,
 } from "../../store";
 import { atMinutes, backendWeekday, fmtDayLong, fmtDuration, parseDate, timeString } from "../../dates";
-import { openTask } from "../../lib/ui";
+import { openTask, Scope } from "../../lib/ui";
+import { toast } from "../../lib/toast";
 import { ReminderKind } from "../../api";
 
 const REMINDERS = [
@@ -60,7 +62,10 @@ export function ItemPopover({ item, anchor, onClose }: { item: CalItem; anchor: 
   useEffect(() => () => {
     if (eventId !== undefined) saveEventDetails(eventId, details.current);
   }, [eventId]);
+  // Which occurrences a time change to a routine applies to.
+  const [scope, setScope] = useState<Scope>("one");
   const tb = item.kind === "time" ? data.timeBlocks.find((b) => b.id === item.id) : undefined;
+  const onDate = item.occurrence ?? item.date;
   const block = item.kind === "task_block" ? data.taskBlocks.find((b) => b.id === item.id) : undefined;
   const task = block ? data.tasks.find((t) => t.id === block.task_id) : undefined;
   if (!ev && !tb && !block) return null;
@@ -69,7 +74,20 @@ export function ItemPopover({ item, anchor, onClose }: { item: CalItem; anchor: 
     if (end <= start) return;
     if (ev) updateEvent(ev.id, { start_at: atMinutes(date, start), end_at: atMinutes(date, end) });
     if (block) updateTaskBlock(block.id, atMinutes(date, start), atMinutes(date, end));
-    if (tb) updateTimeBlock(tb.id, { start_time: timeString(start) + ":00", end_time: timeString(end) + ":00" });
+    if (tb) {
+      const start_time = timeString(start) + ":00";
+      const end_time = timeString(end) + ":00";
+      const weekday = backendWeekday(parseDate(date));
+      if (scope === "one") {
+        changeOccurrence(tb, onDate, { skipped: false, new_date: date === onDate ? null : date, start_time, end_time });
+      } else if (scope === "following") {
+        // Splitting makes a new routine, so this popover (for the old one) closes.
+        splitRoutine(tb, onDate, { weekday, start_time, end_time, start_date: date < onDate ? date : onDate });
+        toast(`Changed “${tb.title}” from ${fmtDayLong(onDate)} onward`);
+      } else {
+        updateTimeBlock(tb.id, { weekday, start_time, end_time });
+      }
+    }
   }
 
   function saveTitle() {
@@ -86,7 +104,7 @@ export function ItemPopover({ item, anchor, onClose }: { item: CalItem; anchor: 
   function remove() {
     onClose();
     if (ev) deleteEvent(ev);
-    if (tb) deleteTimeBlock(tb);
+    if (tb) deleteRoutineAt(tb, onDate);
     if (block && task) deleteTaskBlock(block, task.title);
   }
 
@@ -128,21 +146,18 @@ export function ItemPopover({ item, anchor, onClose }: { item: CalItem; anchor: 
       )}
 
       <div className="pop-when">
-        {tb ? (
+        {tb && (
           <div className="pop-line">
-            <Icon name="repeat" size={15} />
-            <select value={tb.weekday} aria-label="Day of the week"
-              onChange={(e) => updateTimeBlock(tb.id, { weekday: Number(e.target.value) })}>
-              {WEEKDAYS.map((d, i) => <option key={d} value={i}>Every {d}</option>)}
-            </select>
-          </div>
-        ) : (
-          <div className="pop-line">
-            <Icon name="calendar" size={15} />
-            <input type="date" value={item.date} aria-label="Date"
-              onChange={(e) => e.target.value && setTimes(e.target.value, item.start, item.end)} />
+            <span className="muted small">Change</span>
+            <Segmented size="sm" label="Which occurrences a time change applies to" value={scope} onChange={setScope}
+              options={[{ value: "one", label: "This one" }, { value: "following", label: "Following" }, { value: "all", label: "All" }]} />
           </div>
         )}
+        <div className="pop-line">
+          <Icon name="calendar" size={15} />
+          <input type="date" value={item.date} aria-label="Date"
+            onChange={(e) => e.target.value && setTimes(e.target.value, item.start, item.end)} />
+        </div>
         <div className="pop-line">
           <Icon name="clock" size={15} />
           <input type="time" step={300} value={toInput(item.start)} aria-label="Start"
@@ -158,6 +173,28 @@ export function ItemPopover({ item, anchor, onClose }: { item: CalItem; anchor: 
             }} />
           <span className="muted small">{fmtDuration(item.end - item.start)}</span>
         </div>
+        {tb && item.moved && (
+          <div className="pop-line pop-moved">
+            <Icon name="undo" size={15} />
+            <span className="muted small">
+              {item.date !== onDate ? `Moved from ${fmtDayLong(onDate)}` : "Changed for this day only"}
+            </span>
+            <button className="btn sm ghost" onClick={() => restoreOccurrence(tb, onDate)}>Reset</button>
+          </div>
+        )}
+        {tb && (
+          <div className="pop-line">
+            <Icon name="repeat" size={15} />
+            <select value={tb.interval_weeks} aria-label="Repeat every"
+              onChange={(e) => updateTimeBlock(tb.id, { interval_weeks: Number(e.target.value) })}>
+              {[1, 2, 3, 4].map((n) => <option key={n} value={n}>{n === 1 ? "Every week" : `Every ${n} weeks`}</option>)}
+            </select>
+            <select value={tb.weekday} aria-label="Day of the week"
+              onChange={(e) => updateTimeBlock(tb.id, { weekday: Number(e.target.value) })}>
+              {WEEKDAYS.map((d, i) => <option key={d} value={i}>on {d}</option>)}
+            </select>
+          </div>
+        )}
         {tb && (
           <div className="pop-line">
             <Icon name="flag" size={15} />
@@ -208,7 +245,7 @@ export function ItemPopover({ item, anchor, onClose }: { item: CalItem; anchor: 
       )}
       {tb && (
         <p className="pop-note muted small">
-          Changes apply to every {WEEKDAYS[backendWeekday(parseDate(item.date))]}. Shown here on {fmtDayLong(item.date)}.
+          Title, colour, repeat and reminder apply to the whole routine.
         </p>
       )}
     </Popover>

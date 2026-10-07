@@ -21,12 +21,13 @@ from .api_keys import key_owner
 from .auth import _hash_token, _now, api_user
 from .db import Base, get_db
 from .models import ApiKey, Event, ReminderSent, Task, TaskBlock, TimeBlock, User
+from .recurrence import exceptions_by_block, first_occurrence, is_occurrence
 
 EXPORT_FORMAT = 1
 
 # Everything that belongs to the planner. Accounts, sessions and keys are deliberately left out.
 EXPORT_TABLES = [
-    "projects", "columns", "tasks", "task_blocks", "time_blocks", "events",
+    "projects", "columns", "tasks", "task_blocks", "time_blocks", "time_block_exceptions", "events",
     "habits", "habit_logs", "reminders",
 ]
 
@@ -259,14 +260,30 @@ def build_ics(db: Session, since: datetime, host: str) -> str:
             extra.append(f"DESCRIPTION:{_escape(ev.notes)}")
         vevent(f"event-{ev.id}", ev.title, ev.start_at, ev.end_at, extra)
 
+    changes = exceptions_by_block(db)
     for tb in db.query(TimeBlock).filter((TimeBlock.until_date.is_(None)) | (TimeBlock.until_date >= since.date())):
-        # The first occurrence is the first matching weekday on or after start_date.
-        first = tb.start_date + timedelta(days=(tb.weekday - tb.start_date.weekday()) % 7)
+        first = first_occurrence(tb)
         if tb.until_date and first > tb.until_date:
             continue
-        rule = "RRULE:FREQ=WEEKLY" + (f";UNTIL={until_utc(tb.until_date)}" if tb.until_date else "")
-        vevent(f"routine-{tb.id}", tb.title, datetime.combine(first, tb.start_time),
-               datetime.combine(first, tb.end_time), [rule])
+        rule = "RRULE:FREQ=WEEKLY"
+        if (tb.interval_weeks or 1) > 1:
+            rule += f";INTERVAL={tb.interval_weeks}"
+        if tb.until_date:
+            rule += f";UNTIL={until_utc(tb.until_date)}"
+        own = [c for c in changes.get(tb.id, {}).values() if is_occurrence(tb, c.on_date)]
+        # Skipped and moved occurrences are removed from the series; moved ones are published
+        # below as separate one-off events, which every calendar app handles the same way.
+        exdates = [local("EXDATE", datetime.combine(c.on_date, tb.start_time)) for c in own]
+        uid = f"routine-{tb.id}"
+        vevent(uid, tb.title, datetime.combine(first, tb.start_time),
+               datetime.combine(first, tb.end_time), [rule, *exdates])
+        for c in own:
+            if c.skipped:
+                continue
+            where = c.new_date or c.on_date
+            vevent(f"{uid}-{c.on_date.isoformat()}", tb.title,
+                   datetime.combine(where, c.start_time or tb.start_time),
+                   datetime.combine(where, c.end_time or tb.end_time))
 
     blocks = (db.query(TaskBlock, Task).join(Task, Task.id == TaskBlock.task_id)
               .filter(TaskBlock.end_at >= since).order_by(TaskBlock.start_at))

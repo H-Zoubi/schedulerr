@@ -3,9 +3,8 @@ import { Anchor, anchorOf } from "../../components/primitives";
 import { Icon } from "../../components/Icon";
 import { CalItem } from "../../lib/derive";
 import { Task } from "../../api";
-import { addDaysIso, backendWeekday, daysBetween, fmtTime, parseDate, todayIso, timeString, atMinutes } from "../../dates";
-import { store, updateEvent, updateTaskBlock, updateTimeBlock } from "../../store";
-import { toast } from "../../lib/toast";
+import { addDaysIso, daysBetween, fmtTime, parseDate, todayIso, atMinutes } from "../../dates";
+import { moveRoutine, store, updateEvent, updateTaskBlock } from "../../store";
 import { prefs } from "../../lib/prefs";
 import { openTask } from "../../lib/ui";
 
@@ -101,10 +100,7 @@ function moveToDay(it: CalItem, date: string) {
     updateTaskBlock(it.id, atMinutes(date, it.start), atMinutes(date, Math.min(it.end, 1439)));
   } else {
     const tb = s.timeBlocks.find((b) => b.id === it.id);
-    if (!tb) return;
-    const before = tb.weekday;
-    updateTimeBlock(tb.id, { weekday: backendWeekday(parseDate(date)), start_time: timeString(it.start) + ":00" });
-    toast(`Moved every “${tb.title}”`, { action: { label: "Undo", run: () => updateTimeBlock(tb.id, { weekday: before }) } });
+    if (tb) moveRoutine(tb, it.occurrence ?? it.date, { date, start: it.start, end: it.end });
   }
 }
 

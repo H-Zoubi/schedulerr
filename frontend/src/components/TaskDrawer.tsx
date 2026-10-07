@@ -5,12 +5,12 @@ import { closeTask } from "../lib/ui";
 import {
   boardColumns, currentId, deleteTask, deleteTaskBlock, scheduleTask, toggleTaskDone, updateTask, useData,
 } from "../store";
-import { Task } from "../api";
+import { RepeatUnit, Task } from "../api";
 import {
   addDaysIso, atMinutes, fmtDayLong, fmtDuration, fmtRange, isoDate, minutesOfIso, nowMinutes,
   parseDate, relDay, todayIso, weekStartOf, addDays,
 } from "../dates";
-import { expandRange, freeGaps } from "../lib/derive";
+import { expandRange, freeGaps, repeatLabel } from "../lib/derive";
 import { navigate } from "../lib/router";
 import { usePrefs } from "../lib/prefs";
 
@@ -160,6 +160,7 @@ function TaskDetail({ task }: { task: Task }) {
             )}
           </div>
         </div>
+        <RepeatProp task={task} />
         <div className="prop">
           <span className="prop-label"><Icon name="clock" size={15} />Estimate</span>
           <div className="prop-value wrap">
@@ -269,4 +270,64 @@ function autosize(el: HTMLTextAreaElement | null) {
   if (!el) return;
   el.style.height = "auto";
   el.style.height = el.scrollHeight + "px";
+}
+
+const REPEAT_PRESETS: { every: number; unit: RepeatUnit }[] = [
+  { every: 1, unit: "day" }, { every: 1, unit: "week" }, { every: 2, unit: "week" },
+  { every: 1, unit: "month" }, { every: 3, unit: "month" }, { every: 1, unit: "year" },
+];
+const UNITS: RepeatUnit[] = ["day", "week", "month", "year"];
+
+// Repeating tasks stay open: completing one moves its deadline to the next occurrence.
+function RepeatProp({ task }: { task: Task }) {
+  const current = task.repeat_every && task.repeat_unit ? `${task.repeat_every}-${task.repeat_unit}` : "";
+  const isPreset = !current || REPEAT_PRESETS.some((p) => `${p.every}-${p.unit}` === current);
+  const [custom, setCustom] = useState(!isPreset);
+  const set = (every: number | null, unit: RepeatUnit | null) =>
+    updateTask(task.id, { repeat_every: unit ? every : null, repeat_unit: unit });
+
+  return (
+    <div className="prop">
+      <span className="prop-label"><Icon name="repeat" size={15} />Repeat</span>
+      <div className="prop-value wrap">
+        <select className="prop-select" aria-label="Repeat" value={custom ? "custom" : current}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === "custom") {
+              setCustom(true);
+              if (!current) set(2, "day");
+              return;
+            }
+            setCustom(false);
+            if (!v) return set(null, null);
+            const [every, unit] = v.split("-");
+            set(Number(every), unit as RepeatUnit);
+          }}>
+          <option value="">Doesn’t repeat</option>
+          {REPEAT_PRESETS.map((p) => (
+            <option key={`${p.every}-${p.unit}`} value={`${p.every}-${p.unit}`}>{repeatLabel(p.every, p.unit)}</option>
+          ))}
+          <option value="custom">Custom…</option>
+        </select>
+        {custom && task.repeat_unit && (
+          <span className="row-gap">
+            <span className="muted small">Every</span>
+            <input type="number" className="prop-num" min={1} max={365} aria-label="Repeat every"
+              defaultValue={task.repeat_every ?? 1}
+              onBlur={(e) => {
+                const n = Math.round(Number(e.target.value));
+                if (n >= 1 && n <= 365 && n !== task.repeat_every) set(n, task.repeat_unit);
+              }} />
+            <select className="prop-select" aria-label="Repeat unit" value={task.repeat_unit}
+              onChange={(e) => set(task.repeat_every ?? 1, e.target.value as RepeatUnit)}>
+              {UNITS.map((u) => <option key={u} value={u}>{(task.repeat_every ?? 1) === 1 ? u : u + "s"}</option>)}
+            </select>
+          </span>
+        )}
+        {task.repeat_unit && (
+          <span className="muted small prop-hint">Completing it moves the deadline to the next one.</span>
+        )}
+      </div>
+    </div>
+  );
 }

@@ -4,7 +4,9 @@
 //   "Dentist fri 3pm for 45m"            -> event Friday 15:00-15:45
 //   "Write report #thesis !1 due tomorrow" -> task, project Thesis, high priority, deadline tomorrow
 //   "Gym every mon, wed 7-8am"            -> routine on Mondays and Wednesdays, 07:00-08:00
+//   "Pay rent monthly due 1 nov"          -> task repeating every month, first due 1 Nov
 import { addDays, isoDate, weekStartOf } from "../dates";
+import type { RepeatUnit } from "../api";
 
 export type Parsed = {
   title: string;
@@ -16,6 +18,7 @@ export type Parsed = {
   project?: string;    // raw name after '#'
   priority?: number;   // 1 low, 2 medium, 3 high
   weekdays?: number[]; // backend weekdays (0 = Monday) for "every ..."
+  repeat?: { every: number; unit: RepeatUnit }; // "daily", "every 2 weeks", "monthly"
 };
 
 const WD = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
@@ -126,6 +129,21 @@ export function parseQuickAdd(input: string, now = new Date()): Parsed {
   // Project: #name (letters, digits, - and _).
   take(/\s#([\p{L}\p{N}_-]+)(?=\s)/iu, (m) => {
     out.project = m[1];
+  });
+
+  // Repeat interval: "daily", "weekly", "every 3 days", "every other week", "every month".
+  take(/\s(?:(daily|weekly|monthly|yearly|annually)|every\s+(?:(\d+|other)\s+)?(day|week|month|year)s?)(?=\s)/i, (m) => {
+    const word = m[1]?.toLowerCase();
+    if (word) {
+      const unit = ({ daily: "day", weekly: "week", monthly: "month", yearly: "year", annually: "year" } as const)[word as "daily"];
+      out.repeat = { every: 1, unit };
+      return;
+    }
+    // Plain "every day" stays a daily routine (handled below) unless a number is given.
+    if (!m[2] && m[3].toLowerCase() === "day") return false;
+    const every = m[2]?.toLowerCase() === "other" ? 2 : Number(m[2] ?? 1);
+    if (!every || every > 365) return false;
+    out.repeat = { every, unit: m[3].toLowerCase() as RepeatUnit };
   });
 
   // Weekly recurrence: "every mon", "every mon, wed and fri", "every weekday".

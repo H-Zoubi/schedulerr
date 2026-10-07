@@ -10,11 +10,13 @@
 
 import {
   api, CalEvent, Column, del, Habit, HabitLog, patch, post, Project, put,
-  Reminder, ReminderKind, Task, TaskBlock, TimeBlock,
+  Reminder, ReminderKind, Task, TaskBlock, TimeBlock, TimeBlockException,
 } from "./api";
 import { createStore } from "./lib/createStore";
 import { toast, toastError } from "./lib/toast";
-import { addDays, isoDate } from "./dates";
+import { addDays, addDaysIso, backendWeekday, fmtDayLong, isoDate, parseDate, timeString } from "./dates";
+import { firstOccurrence, nextDeadline } from "./lib/derive";
+import { askScope } from "./lib/ui";
 
 export type Data = {
   ready: boolean;
@@ -23,6 +25,7 @@ export type Data = {
   columns: Column[];
   events: CalEvent[];
   timeBlocks: TimeBlock[];
+  timeBlockExceptions: TimeBlockException[];
   taskBlocks: TaskBlock[];
   habits: Habit[];
   habitLogs: HabitLog[];
@@ -34,7 +37,7 @@ type ListKey = "tasks" | "projects" | "columns" | "events" | "timeBlocks" | "tas
 type Item = { id: number };
 
 const EMPTY: Data = {
-  ready: false, tasks: [], projects: [], columns: [], events: [], timeBlocks: [],
+  ready: false, tasks: [], projects: [], columns: [], events: [], timeBlocks: [], timeBlockExceptions: [],
   taskBlocks: [], habits: [], habitLogs: [], reminders: [], pending: 0,
 };
 
@@ -224,7 +227,7 @@ export async function loadAll(): Promise<void> {
   const today = new Date();
   const histStart = isoDate(addDays(today, -7 * 26));
   const histEnd = isoDate(addDays(today, 7));
-  const [tasks, projects, events, timeBlocks, taskBlocks, habits, habitLogs, reminders, general] =
+  const [tasks, projects, events, timeBlocks, taskBlocks, habits, habitLogs, reminders, general, timeBlockExceptions] =
     await Promise.all([
       api<Task[]>("/api/tasks"),
       api<Project[]>("/api/projects"),
@@ -235,13 +238,14 @@ export async function loadAll(): Promise<void> {
       api<HabitLog[]>(`/api/habits/history?start=${histStart}&end=${histEnd}`),
       api<Reminder[]>("/api/reminders").catch(() => [] as Reminder[]),
       api<Column[]>("/api/columns"),
+      api<TimeBlockException[]>("/api/time-block-exceptions"),
     ]);
   const projectCols = await Promise.all(projects.map((p) => api<Column[]>(`/api/columns?project_id=${p.id}`)));
   lastSync = Date.now();
   // Don't clobber local changes that are still on their way to the server.
   if (store.get().pending > 0 || pendingDeletes.size > 0) return;
   store.set((s) => ({
-    ...s, ready: true, tasks, projects, events, timeBlocks, taskBlocks, habits, habitLogs, reminders,
+    ...s, ready: true, tasks, projects, events, timeBlocks, timeBlockExceptions, taskBlocks, habits, habitLogs, reminders,
     columns: [...general, ...projectCols.flat()],
   }));
 }
@@ -358,6 +362,8 @@ export type TaskDraft = {
   deadline?: string | null;
   priority?: number;
   position?: number;
+  repeat_every?: number | null;
+  repeat_unit?: Task["repeat_unit"];
 };
 
 export function createTask(draft: TaskDraft): Task {
@@ -372,6 +378,8 @@ export function createTask(draft: TaskDraft): Task {
     deadline: draft.deadline ?? null,
     priority: draft.priority ?? 0,
     position: draft.position ?? 0,
+    repeat_every: draft.repeat_unit ? draft.repeat_every ?? 1 : null,
+    repeat_unit: draft.repeat_unit ?? null,
   };
   return create("tasks", { ...body, ...columnFields(columnId) },
     async () => post<Task>("/api/tasks", { ...body, column_id: columnId === null ? null : await realId(columnId) }));
@@ -380,6 +388,12 @@ export function createTask(draft: TaskDraft): Task {
 export function updateTask(id: number, change: Partial<Omit<Task, "id" | "column_key" | "done">>) {
   let local: Partial<Task> = change;
   const task = getItem("tasks", id);
+  const target = typeof change.column_id === "number" ? store.get().columns.find((c) => c.id === change.column_id) : undefined;
+  if (task && repeats(task) && target?.is_done && !task.done) {
+    // Dropped into Done: the server rolls it forward instead, so mirror that here.
+    rollForward(task, async () => patch<Task>(`/api/tasks/${await realId(task.id)}`, { column_id: change.column_id }));
+    return Promise.resolve();
+  }
   if (task && "project_id" in change && change.project_id !== task.project_id && !("column_id" in change)) {
     // Moving to another board starts at that board's first column.
     const first = boardColumns(store.get().columns, change.project_id ?? null)[0];
@@ -395,8 +409,28 @@ export function updateTask(id: number, change: Partial<Omit<Task, "id" | "column
 
 const previousColumn = new Map<number, number | null>();
 
+const repeats = (t: Task) => !!(t.repeat_every && t.repeat_unit);
+
+// Completing a repeating task moves its deadline to the next occurrence and leaves it open.
+function rollForward(task: Task, send: () => Promise<Task>) {
+  const next = nextDeadline(task.deadline, task.repeat_every!, task.repeat_unit!);
+  const before = task.deadline;
+  mutate("tasks", task.id, { deadline: next }, async (rid) => {
+    void rid;
+    return send();
+  }).catch(() => undefined);
+  toast(`Done. “${task.title}” is next due ${fmtDayLong(next)}`, {
+    tone: "success",
+    action: { label: "Undo", run: () => updateTask(task.id, { deadline: before }) },
+  });
+}
+
 export function toggleTaskDone(task: Task) {
   const cols = boardColumns(store.get().columns, task.project_id);
+  if (!task.done && repeats(task)) {
+    rollForward(task, async () => post<Task>(`/api/tasks/${await realId(task.id)}/complete`, {}));
+    return;
+  }
   if (!task.done) {
     const doneCol = cols.find((c) => c.is_done);
     if (!doneCol) {
@@ -512,10 +546,11 @@ export function deleteEvent(ev: CalEvent) {
 
 // ---------- Time blocks (recurring) ----------
 
-export type TimeBlockDraft = Omit<TimeBlock, "id">;
+export type TimeBlockDraft = Omit<TimeBlock, "id" | "interval_weeks"> & { interval_weeks?: number };
 
 export function createTimeBlock(draft: TimeBlockDraft): TimeBlock {
-  return create("timeBlocks", draft, () => post<TimeBlock>("/api/time-blocks", draft));
+  const body = { interval_weeks: 1, ...draft };
+  return create("timeBlocks", body, () => post<TimeBlock>("/api/time-blocks", body));
 }
 
 export function updateTimeBlock(id: number, change: Partial<TimeBlockDraft>) {
@@ -530,8 +565,142 @@ export function updateTimeBlock(id: number, change: Partial<TimeBlockDraft>) {
 export function deleteTimeBlock(tb: TimeBlock) {
   deleteWithUndo(`Deleted routine “${tb.title}”`, {
     key: `timeBlock:${tb.id}`,
-    remove: () => removeLocal("timeBlocks", (b) => b.id === tb.id),
+    remove: () => {
+      const restoreBlock = removeLocal("timeBlocks", (b) => b.id === tb.id);
+      const changes = store.get().timeBlockExceptions;
+      setExceptions((list) => list.filter((x) => x.time_block_id !== tb.id));
+      return () => {
+        restoreBlock();
+        setExceptions(() => changes);
+      };
+    },
     commit: async () => del(`/api/time-blocks/${await realId(tb.id)}`),
+  });
+}
+
+// ---------- One occurrence of a routine ----------
+
+export type OccurrenceChange = Pick<TimeBlockException, "skipped" | "new_date" | "start_time" | "end_time">;
+
+function setExceptions(fn: (list: TimeBlockException[]) => TimeBlockException[]) {
+  store.set((s) => ({ ...s, timeBlockExceptions: fn(s.timeBlockExceptions) }));
+}
+
+const sameOccurrence = (blockId: number, onDate: string) => (x: TimeBlockException) =>
+  x.time_block_id === blockId && x.on_date === onDate;
+
+export function occurrenceChange(blockId: number, onDate: string): TimeBlockException | undefined {
+  return store.get().timeBlockExceptions.find(sameOccurrence(blockId, onDate));
+}
+
+// Skip or move one occurrence (on its original date `onDate`). Applied locally first.
+export async function changeOccurrence(tb: TimeBlock, onDate: string, change: OccurrenceChange) {
+  const before = occurrenceChange(tb.id, onDate);
+  const vkey = `occurrence:${tb.id}:${onDate}`;
+  const v = bump(vkey);
+  const local: TimeBlockException = { id: before?.id ?? tempSeq--, time_block_id: tb.id, on_date: onDate, ...change };
+  setExceptions((list) => [...list.filter((x) => !sameOccurrence(tb.id, onDate)(x)), local]);
+  try {
+    const rid = await realId(tb.id);
+    const server = await tracked(put<TimeBlockException>(`/api/time-blocks/${rid}/occurrences/${onDate}`, change));
+    if (versions.get(vkey) === v) {
+      setExceptions((list) => [...list.filter((x) => !sameOccurrence(tb.id, onDate)(x)), { ...server, time_block_id: tb.id }]);
+    }
+  } catch (e) {
+    if (versions.get(vkey) === v) {
+      setExceptions((list) => [...list.filter((x) => !sameOccurrence(tb.id, onDate)(x)), ...(before ? [before] : [])]);
+    }
+    toastError(e, "Could not change this occurrence");
+  }
+}
+
+// Put a skipped or moved occurrence back where the routine has it.
+export async function restoreOccurrence(tb: TimeBlock, onDate: string) {
+  const before = occurrenceChange(tb.id, onDate);
+  if (!before) return;
+  const vkey = `occurrence:${tb.id}:${onDate}`;
+  const v = bump(vkey);
+  setExceptions((list) => list.filter((x) => !sameOccurrence(tb.id, onDate)(x)));
+  try {
+    await tracked(del(`/api/time-blocks/${await realId(tb.id)}/occurrences/${onDate}`));
+  } catch (e) {
+    if (versions.get(vkey) === v) setExceptions((list) => [...list, before]);
+    toastError(e, "Could not restore this occurrence");
+  }
+}
+
+export function skipOccurrence(tb: TimeBlock, onDate: string) {
+  changeOccurrence(tb, onDate, { skipped: true, new_date: null, start_time: null, end_time: null });
+  toast(`Skipped “${tb.title}” on ${fmtDayLong(onDate)}`, {
+    action: { label: "Undo", run: () => restoreOccurrence(tb, onDate) },
+  });
+}
+
+// "This and following": change the routine from the occurrence on `fromDate` onward.
+// Starting at the first occurrence is just an edit of the whole routine.
+export async function splitRoutine(tb: TimeBlock, fromDate: string, change: Partial<TimeBlockDraft>) {
+  if (fromDate <= firstOccurrence(tb)) return updateTimeBlock(tb.id, change);
+  const { id: _omit, ...current } = tb;
+  void _omit;
+  try {
+    const rid = await realId(tb.id);
+    const res = await tracked(post<{ before: TimeBlock | null; after: TimeBlock }>(
+      `/api/time-blocks/${rid}/split`, { from_date: fromDate, block: { ...current, start_date: fromDate, ...change } },
+    ));
+    const reminders = await api<Reminder[]>("/api/reminders").catch(() => store.get().reminders);
+    store.set((s) => ({
+      ...s,
+      reminders,
+      timeBlocks: [...s.timeBlocks.filter((b) => b.id !== tb.id), ...(res.before ? [res.before] : []), res.after],
+      timeBlockExceptions: s.timeBlockExceptions.filter((x) => x.time_block_id !== tb.id || x.on_date < fromDate),
+    }));
+    return res.after;
+  } catch (e) {
+    toastError(e, "Could not change the routine");
+  }
+}
+
+// Move a routine occurrence (originally on `onDate`) after asking which occurrences it's for.
+export async function moveRoutine(tb: TimeBlock, onDate: string, to: { date: string; start: number; end: number }) {
+  const scope = await askScope(`Move “${tb.title}”?`, "Move");
+  if (!scope) return;
+  const start_time = timeString(to.start) + ":00";
+  const end_time = timeString(Math.min(to.end, 24 * 60 - 1)) + ":00";
+  if (scope === "one") {
+    const before = occurrenceChange(tb.id, onDate);
+    changeOccurrence(tb, onDate, { skipped: false, new_date: to.date === onDate ? null : to.date, start_time, end_time });
+    toast(`Moved “${tb.title}” on ${fmtDayLong(onDate)} only`, {
+      action: {
+        label: "Undo",
+        run: () => before ? changeOccurrence(tb, onDate, before) : restoreOccurrence(tb, onDate),
+      },
+    });
+  } else if (scope === "following") {
+    const weekday = backendWeekday(parseDate(to.date));
+    await splitRoutine(tb, onDate, { weekday, start_time, end_time, start_date: to.date < onDate ? to.date : onDate });
+    toast(`Moved “${tb.title}” from ${fmtDayLong(onDate)} onward`);
+  } else {
+    const before = { weekday: tb.weekday, start_time: tb.start_time, end_time: tb.end_time };
+    updateTimeBlock(tb.id, { weekday: backendWeekday(parseDate(to.date)), start_time, end_time });
+    toast(`Moved every “${tb.title}”`, { action: { label: "Undo", run: () => updateTimeBlock(tb.id, before) } });
+  }
+}
+
+// Delete one occurrence, this and following, or the whole routine, after asking which.
+export async function deleteRoutineAt(tb: TimeBlock, onDate: string) {
+  const scope = await askScope(`Delete “${tb.title}”?`, "Delete");
+  if (scope === "one") skipOccurrence(tb, onDate);
+  else if (scope === "following") endRoutineBefore(tb, onDate);
+  else if (scope === "all") deleteTimeBlock(tb);
+}
+
+// "This and following" for deleting: end the routine just before `fromDate`.
+export function endRoutineBefore(tb: TimeBlock, fromDate: string) {
+  if (fromDate <= firstOccurrence(tb)) return deleteTimeBlock(tb);
+  const before = tb.until_date;
+  updateTimeBlock(tb.id, { until_date: addDaysIso(fromDate, -1) });
+  toast(`“${tb.title}” now ends before ${fmtDayLong(fromDate)}`, {
+    action: { label: "Undo", run: () => updateTimeBlock(tb.id, { until_date: before }) },
   });
 }
 

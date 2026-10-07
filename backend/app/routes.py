@@ -8,8 +8,11 @@ from sqlalchemy.orm import Session as DBSession
 
 from .auth import api_user
 from .db import get_db
-from .models import Column, Event, Habit, HabitLog, Project, Reminder, Task, TaskBlock, TimeBlock, User
+from .models import (
+    Column, Event, Habit, HabitLog, Project, Reminder, Task, TaskBlock, TimeBlock, TimeBlockException, User,
+)
 from . import notifications
+from .recurrence import exceptions_by_block, expand, is_occurrence, next_deadline
 
 router = APIRouter(dependencies=[Depends(api_user)])
 
@@ -47,6 +50,7 @@ class WeekItem(BaseModel):
     end_time: time | None = None
     color: str
     task_id: int | None = None
+    original_date: date | None = None  # time blocks: the occurrence's date before any move
 
 
 class WeekDay(BaseModel):
@@ -61,7 +65,7 @@ def week(start: date, db: DBSession = Depends(get_db)) -> list[WeekDay]:
     range_start = datetime.combine(days[0], time.min)
     range_end = datetime.combine(days[-1] + timedelta(days=1), time.min)
 
-    blocks = db.query(TimeBlock).all()
+    occurrences = expand(db.query(TimeBlock).all(), exceptions_by_block(db), days[0], days[-1])
     events = (
         db.query(Event)
         .filter(Event.start_at < range_end, Event.end_at > range_start)
@@ -77,15 +81,13 @@ def week(start: date, db: DBSession = Depends(get_db)) -> list[WeekDay]:
     result = []
     for day in days:
         items: list[WeekItem] = []
-        for c in blocks:
-            if c.weekday != day.weekday():
-                continue
-            if day < c.start_date or (c.until_date and day > c.until_date):
+        for o in occurrences:
+            if o.date != day:
                 continue
             items.append(
                 WeekItem(
-                    kind="time", id=c.id, title=c.title, color=c.color,
-                    start_time=c.start_time, end_time=c.end_time,
+                    kind="time", id=o.block.id, title=o.block.title, color=o.block.color,
+                    start_time=o.start_time, end_time=o.end_time, original_date=o.original_date,
                 )
             )
         for e in events:
@@ -115,9 +117,12 @@ class TimeBlockIn(BaseModel):
     start_date: date
     until_date: date | None = None
     color: str = "#4f46e5"
+    interval_weeks: int = Field(default=1, ge=1, le=52)
 
     @model_validator(mode="after")
     def _end_after_start(self):
+        if not 0 <= self.weekday <= 6:
+            raise ValueError("weekday must be 0 (Monday) to 6 (Sunday)")
         if self.end_time <= self.start_time:
             raise ValueError("end_time must be after start_time")
         if self.until_date and self.until_date < self.start_date:
@@ -128,6 +133,40 @@ class TimeBlockIn(BaseModel):
 class TimeBlockOut(TimeBlockIn):
     model_config = ConfigDict(from_attributes=True)
     id: int
+
+
+class OccurrenceIn(BaseModel):
+    """Skip one occurrence, or move it to another date and/or time."""
+    skipped: bool = False
+    new_date: date | None = None
+    start_time: time | None = None
+    end_time: time | None = None
+
+    @model_validator(mode="after")
+    def _check(self):
+        if (self.start_time is None) != (self.end_time is None):
+            raise ValueError("Give both start_time and end_time, or neither")
+        if self.start_time and self.end_time <= self.start_time:
+            raise ValueError("end_time must be after start_time")
+        return self
+
+
+class OccurrenceOut(OccurrenceIn):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    time_block_id: int
+    on_date: date
+
+
+class SplitIn(BaseModel):
+    """Change a routine from one occurrence onward: earlier ones keep the old settings."""
+    from_date: date
+    block: TimeBlockIn
+
+
+class SplitOut(BaseModel):
+    before: TimeBlockOut | None  # None when the split starts at the first occurrence
+    after: TimeBlockOut
 
 
 @router.get("/time-blocks", response_model=list[TimeBlockOut])
@@ -156,6 +195,88 @@ def delete_time_block(item_id: int, db: DBSession = Depends(get_db)):
     db.delete(_get_or_404(db, TimeBlock, item_id))
     db.commit()
     return Response(status_code=204)
+
+
+@router.get("/time-block-exceptions", response_model=list[OccurrenceOut])
+def list_occurrence_changes(db: DBSession = Depends(get_db)):
+    return db.query(TimeBlockException).order_by(TimeBlockException.on_date).all()
+
+
+def _occurrence_or_422(db: DBSession, block: TimeBlock, on_date: date) -> None:
+    if not is_occurrence(block, on_date):
+        db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            "That routine has no occurrence on this date")
+
+
+@router.put("/time-blocks/{item_id}/occurrences/{on_date}", response_model=OccurrenceOut)
+def change_occurrence(item_id: int, on_date: date, body: OccurrenceIn, db: DBSession = Depends(get_db)):
+    """Skip or move the occurrence originally on `on_date`. The rest of the routine is unchanged."""
+    block = _get_or_404(db, TimeBlock, item_id)
+    _occurrence_or_422(db, block, on_date)
+    row = (db.query(TimeBlockException)
+           .filter(TimeBlockException.time_block_id == item_id, TimeBlockException.on_date == on_date)
+           .one_or_none())
+    if row is None:
+        row = TimeBlockException(time_block_id=item_id, on_date=on_date)
+        db.add(row)
+    _apply(row, body.model_dump())
+    db.commit()
+    return row
+
+
+@router.delete("/time-blocks/{item_id}/occurrences/{on_date}", status_code=204)
+def restore_occurrence(item_id: int, on_date: date, db: DBSession = Depends(get_db)):
+    """Put a skipped or moved occurrence back where the routine has it."""
+    _get_or_404(db, TimeBlock, item_id)
+    (db.query(TimeBlockException)
+     .filter(TimeBlockException.time_block_id == item_id, TimeBlockException.on_date == on_date)
+     .delete())
+    db.commit()
+    return Response(status_code=204)
+
+
+@router.post("/time-blocks/{item_id}/split", response_model=SplitOut)
+def split_time_block(item_id: int, body: SplitIn, db: DBSession = Depends(get_db)):
+    """Apply `block` from the occurrence on `from_date` onward ("this and following").
+
+    The original routine ends the day before and a new routine carries the changes, keeping
+    the original end date and reminder. Changes to occurrences from that date on are dropped.
+    """
+    old = _get_or_404(db, TimeBlock, item_id)
+    _occurrence_or_422(db, old, body.from_date)
+    data = body.block.model_dump()
+    # The new routine may start up to six days earlier (an occurrence dragged back within its
+    # week); anything earlier would repeat the old routine's previous occurrence, so it starts
+    # at from_date instead.
+    if data["start_date"] < body.from_date - timedelta(days=6):
+        data["start_date"] = body.from_date
+    if data["until_date"] is not None and data["until_date"] < data["start_date"]:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "until_date must not be before start_date")
+    new = TimeBlock(**data)
+    db.add(new)
+    db.query(TimeBlockException).filter(
+        TimeBlockException.time_block_id == old.id, TimeBlockException.on_date >= body.from_date,
+    ).delete()
+    db.flush()
+    reminder = (db.query(Reminder)
+                .filter(Reminder.kind == "time_block", Reminder.target_id == old.id).one_or_none())
+    if reminder:
+        db.add(Reminder(kind="time_block", target_id=new.id, minutes_before=reminder.minutes_before))
+
+    earlier = body.from_date - timedelta(days=1)
+    has_earlier = any(is_occurrence(old, earlier - timedelta(days=d))
+                      for d in range(max(0, (earlier - old.start_date).days + 1)))
+    if not has_earlier:
+        # The split starts at the first occurrence, so nothing of the old routine is left.
+        if reminder:
+            db.delete(reminder)
+        db.delete(old)
+        db.commit()
+        return SplitOut(before=None, after=new)
+    old.until_date = earlier
+    db.commit()
+    return SplitOut(before=old, after=new)
 
 
 # ---------- Events ----------
@@ -377,6 +498,18 @@ class TaskIn(BaseModel):
     deadline: date | None = None
     priority: int = Field(default=0, ge=0, le=3)
     position: int = 0
+    repeat_every: int | None = Field(default=None, ge=1, le=365)
+    repeat_unit: Literal["day", "week", "month", "year"] | None = None
+
+    @model_validator(mode="after")
+    def _repeat_pair(self):
+        _check_repeat(self.repeat_every, self.repeat_unit)
+        return self
+
+
+def _check_repeat(every, unit) -> None:
+    if (every is None) != (unit is None):
+        raise ValueError("Set both repeat_every and repeat_unit, or neither")
 
 
 class TaskPatch(BaseModel):
@@ -388,6 +521,14 @@ class TaskPatch(BaseModel):
     deadline: date | None = None
     position: int | None = None
     priority: int | None = Field(default=None, ge=0, le=3)
+    repeat_every: int | None = Field(default=None, ge=1, le=365)
+    repeat_unit: Literal["day", "week", "month", "year"] | None = None
+
+    @model_validator(mode="after")
+    def _repeat_pair(self):
+        if "repeat_every" in self.model_fields_set or "repeat_unit" in self.model_fields_set:
+            _check_repeat(self.repeat_every, self.repeat_unit)
+        return self
 
 
 class TaskOut(BaseModel):
@@ -403,6 +544,8 @@ class TaskOut(BaseModel):
     deadline: date | None
     position: int
     priority: int
+    repeat_every: int | None
+    repeat_unit: str | None
 
 
 def _task_out(task: Task, columns: dict[int, Column]) -> dict:
@@ -419,7 +562,14 @@ def _task_out(task: Task, columns: dict[int, Column]) -> dict:
         "deadline": task.deadline,
         "position": task.position,
         "priority": task.priority or 0,
+        "repeat_every": task.repeat_every,
+        "repeat_unit": task.repeat_unit,
     }
+
+
+def _roll_forward(task: Task) -> None:
+    """A repeating task isn't finished by completing it: its deadline moves to the next one."""
+    task.deadline = next_deadline(task.deadline, task.repeat_every, task.repeat_unit, date.today())
 
 
 @router.get("/tasks", response_model=list[TaskOut])
@@ -448,7 +598,18 @@ def update_task(item_id: int, body: TaskPatch, db: DBSession = Depends(get_db)):
         data["column_id"] = None
     if "project_id" in data or "column_id" in data:
         project_id = data.get("project_id", item.project_id)
-        data["column_id"] = _resolve_column(db, data.get("column_id"), project_id).id
+        target = _resolve_column(db, data.get("column_id"), project_id)
+        data["column_id"] = target.id
+        repeats = data.get("repeat_every", item.repeat_every) and data.get("repeat_unit", item.repeat_unit)
+        current = db.get(Column, item.column_id) if item.column_id else None
+        if repeats and target.is_done and not (current and current.is_done):
+            # Dropped into Done: count it as completed and keep it where it was.
+            data.pop("column_id")
+            data.pop("project_id", None)
+            _apply(item, data)
+            _roll_forward(item)
+            db.commit()
+            return _task_out(item, {c.id: c for c in db.query(Column).all()})
     _apply(item, data)
     db.commit()
     return _task_out(item, {c.id: c for c in db.query(Column).all()})
@@ -464,7 +625,10 @@ def complete_task(item_id: int, db: DBSession = Depends(get_db)):
             .first())
     if done is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "This board has no done column")
-    item.column_id = done.id
+    if item.repeat_every and item.repeat_unit:
+        _roll_forward(item)
+    else:
+        item.column_id = done.id
     db.commit()
     return _task_out(item, {c.id: c for c in db.query(Column).all()})
 

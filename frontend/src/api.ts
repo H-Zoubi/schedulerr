@@ -56,7 +56,11 @@ export type Task = {
   deadline: string | null;
   position: number;
   priority: number;          // 0 none, 1 low, 2 medium, 3 high
+  repeat_every: number | null;
+  repeat_unit: RepeatUnit | null; // completing rolls the deadline forward instead
 };
+
+export type RepeatUnit = "day" | "week" | "month" | "year";
 
 export type Project = {
   id: number;
@@ -94,6 +98,18 @@ export type TimeBlock = {
   start_date: string;
   until_date: string | null;
   color: string;
+  interval_weeks: number;     // repeats every N weeks
+};
+
+// One occurrence of a routine that was skipped or moved. on_date is where the routine put it.
+export type TimeBlockException = {
+  id: number;
+  time_block_id: number;
+  on_date: string;
+  skipped: boolean;
+  new_date: string | null;
+  start_time: string | null;
+  end_time: string | null;
 };
 
 export type TaskBlock = {

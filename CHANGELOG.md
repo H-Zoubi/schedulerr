@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Change, move or skip a single occurrence of a routine, or change it from one occurrence onward.
+  Dragging or deleting a routine asks which occurrences you mean.
+- Routines can repeat every 2, 3 or 4 weeks.
+- Repeating tasks: completing one moves its deadline to the next occurrence. Quick add
+  understands "daily", "weekly", "monthly", "every 3 days" and "every other week".
+
 - Add location and notes to events; a location that is a link can be opened from the event.
 - Flag overlapping calendar items in the calendar, the item details and Today.
 - Add a "Buffer between blocks" setting used by "Plan my day" and "Next free slot".

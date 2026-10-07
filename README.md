@@ -18,6 +18,8 @@ See [PLAN.md](PLAN.md) for the product plan and [DATA_MODEL.md](DATA_MODEL.md) f
 - Events can have a location (or a meeting link you can open) and notes.
 - Overlapping items are flagged with a red corner in the calendar and a note in Today. "Plan my day" and "Next free slot" keep a buffer between blocks (Settings → Calendar).
 - **Backup**: download everything as one JSON file and restore it from Settings → Backup. Docker also keeps nightly database dumps (see below).
+- **Routines** repeat every week or every few weeks. Change or skip one occurrence, change it and the ones after it, or change them all; the same choice appears when you drag or delete one.
+- **Repeating tasks** ("Pay rent monthly", "Water plants every 3 days", or the Repeat field in the task) stay open when completed: the deadline moves to the next one.
 - **Calendar feed**: subscribe to your schedule from Apple Calendar, Google Calendar or Outlook (Settings → Calendar feed).
 
 ### How it stays fast
@@ -26,7 +28,6 @@ All data loads once, then every change is applied on screen immediately and sync
 
 ## Not done yet
 
-- Recurrence exceptions (moving one occurrence of a routine; moving a routine moves the series, with Undo)
 - PWA install, offline mode
 
 ## Run it locally

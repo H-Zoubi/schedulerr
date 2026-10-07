@@ -7,13 +7,12 @@ import { Icon } from "../../components/Icon";
 import { CalItem, conflicts, layoutDay } from "../../lib/derive";
 import { Task } from "../../api";
 import {
-  atMinutes, backendWeekday, fmtHour, fmtRange, fmtTime, nowMinutes, parseDate, timeString, todayIso,
+  atMinutes, fmtHour, fmtRange, fmtTime, nowMinutes, parseDate, todayIso,
 } from "../../dates";
 import {
-  scheduleTask, store, toggleTaskDone, updateEvent, updateTaskBlock, updateTimeBlock,
+  moveRoutine, scheduleTask, store, toggleTaskDone, updateEvent, updateTaskBlock,
 } from "../../store";
 import { prefs, setPref, usePrefs } from "../../lib/prefs";
-import { toast } from "../../lib/toast";
 import { openTask } from "../../lib/ui";
 
 const SNAP = 15;
@@ -403,15 +402,10 @@ function commitMove(it: CalItem, to: Range) {
     updateTaskBlock(it.id, atMinutes(to.date, to.start), atMinutes(to.date, Math.min(to.end, DAY_MIN - 1)));
   } else {
     const tb = s.timeBlocks.find((b) => b.id === it.id);
-    if (!tb) return;
-    const before = { weekday: tb.weekday, start_time: tb.start_time, end_time: tb.end_time };
-    const weekday = backendWeekday(parseDate(to.date));
-    updateTimeBlock(it.id, {
-      weekday, start_time: timeString(to.start) + ":00", end_time: timeString(Math.min(to.end, DAY_MIN - 1)) + ":00",
-    });
-    toast(`Moved every “${tb.title}”`, { action: { label: "Undo", run: () => updateTimeBlock(it.id, before) } });
+    if (tb) moveRoutine(tb, it.occurrence ?? it.date, to);
   }
 }
+
 
 const DayHeader = memo(function DayHeader({ date, today, due, onDayClick, onDueDown }: {
   date: string; today: string; due?: Task[];

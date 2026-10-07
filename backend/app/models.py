@@ -51,6 +51,23 @@ class TimeBlock(Base):
     start_date: Mapped[date] = mapped_column(Date)
     until_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     color: Mapped[str] = mapped_column(String(20), default="#4f46e5")
+    # Repeats every N weeks, counted from the first occurrence on or after start_date.
+    interval_weeks: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class TimeBlockException(Base):
+    """One occurrence of a routine that was skipped or moved. on_date is its original date."""
+
+    __tablename__ = "time_block_exceptions"
+    __table_args__ = (UniqueConstraint("time_block_id", "on_date", name="uq_time_block_exception"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    time_block_id: Mapped[int] = mapped_column(ForeignKey("time_blocks.id", ondelete="CASCADE"))
+    on_date: Mapped[date] = mapped_column(Date)
+    skipped: Mapped[bool] = mapped_column(Boolean, default=False)
+    new_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    start_time: Mapped[time | None] = mapped_column(Time, nullable=True)
+    end_time: Mapped[time | None] = mapped_column(Time, nullable=True)
 
 
 class Event(Base):
@@ -111,6 +128,9 @@ class Task(Base):
     # 0 = none, 1 = low, 2 = medium, 3 = high.
     priority: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # A repeating task rolls its deadline forward when completed instead of staying done.
+    repeat_every: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    repeat_unit: Mapped[str | None] = mapped_column(String(10), nullable=True)  # day | week | month | year
 
 
 class TaskBlock(Base):

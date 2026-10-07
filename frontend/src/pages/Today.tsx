@@ -27,7 +27,7 @@ export function Today() {
   }, []);
 
   const items = useMemo(() => expandRange(today, today, data).get(today) ?? [],
-    [data.events, data.timeBlocks, data.taskBlocks, data.tasks, data.projects, today]); // eslint-disable-line react-hooks/exhaustive-deps
+    [data.events, data.timeBlocks, data.timeBlockExceptions, data.taskBlocks, data.tasks, data.projects, today]); // eslint-disable-line react-hooks/exhaustive-deps
   const blocks = useMemo(() => blocksByTask(data.taskBlocks), [data.taskBlocks]);
   const projects = useMemo(() => new Map(data.projects.map((p) => [p.id, p])), [data.projects]);
 

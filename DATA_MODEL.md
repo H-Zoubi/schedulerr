@@ -17,17 +17,18 @@ Time blocks and events are fixed commitments. Task blocks are placements of a ta
 ### `time_block`
 - `id`
 - `title`
-- `rrule` (RFC 5545, e.g. `FREQ=WEEKLY;BYDAY=SU`)
+- `weekday` (0 = Monday) and `interval_weeks` (every N weeks, counted from the first
+  occurrence on or after `start_date`)
 - `start_time`, `end_time` (local time of day)
-- `start_date` (first occurrence), `until_date` (optional)
-- `timezone`
+- `start_date`, `until_date` (optional)
 - `color`
-- `notes`
+- "This and following" changes end the routine the day before and start a new one.
 
-### `time_block_exception`
-- `block_id`, `occurrence_date`
-- `action`: `cancelled` or `moved`
-- `new_start`, `new_end` (when moved)
+### `time_block_exceptions` (built)
+- `time_block_id`, `on_date` (the date the routine gives the occurrence; unique together)
+- `skipped`, or `new_date` / `start_time` / `end_time` for a moved or retimed occurrence
+- Expanded the same way by the frontend (`lib/derive.ts`), the week API, reminders and
+  the calendar feed (`app/recurrence.py`).
 
 ### `event`
 - `id`, `title`, `start_at`, `end_at`, `timezone`
@@ -45,6 +46,9 @@ Time blocks and events are fixed commitments. Task blocks are placements of a ta
 - `event_id` (optional, for prep and follow-up links)
 - `position` (ordering within a Kanban column)
 - `created_at`, `completed_at`
+- `repeat_every`, `repeat_unit` (`day` | `week` | `month` | `year`), both or neither (built).
+  Completing a repeating task moves its deadline to the next one after today instead of
+  marking it done.
 
 ### `project`
 - `id`, `name`, `color`

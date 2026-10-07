@@ -9,7 +9,7 @@ import { CalItem, compareTasks, expandRange } from "../lib/derive";
 import { navigate, Route } from "../lib/router";
 import { CalView, setPref, usePrefs } from "../lib/prefs";
 import {
-  createEvent, createTask, createTimeBlock, deleteEvent, deleteTaskBlock, deleteTimeBlock, scheduleTask, store,
+  createEvent, createTask, createTimeBlock, deleteEvent, deleteRoutineAt, deleteTaskBlock, scheduleTask, store,
   toggleTaskDone, useData,
 } from "../store";
 import {
@@ -62,7 +62,7 @@ export function Calendar({ route }: { route: Extract<Route, { name: "calendar" }
   }, [view, date]);
 
   const items = useMemo(() => expandRange(days[0], days[days.length - 1], data),
-    [days, data.events, data.timeBlocks, data.taskBlocks, data.tasks, data.projects]); // eslint-disable-line react-hooks/exhaustive-deps
+    [days, data.events, data.timeBlocks, data.timeBlockExceptions, data.taskBlocks, data.tasks, data.projects]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const dueByDay = useMemo(() => {
     const m = new Map<string, Task[]>();
@@ -84,8 +84,10 @@ export function Calendar({ route }: { route: Extract<Route, { name: "calendar" }
   }, [data.events, data.taskBlocks]);
 
   // Keep the open popover's item fresh as data changes (e.g. after editing its time).
-  const liveItem = popover ? items.get(popover.item.date)?.find((i) => i.key === popover.item.key)
-    ?? [...items.values()].flat().find((i) => i.kind === popover.item.kind && i.id === popover.item.id) : undefined;
+  // Routine occurrences keep their key when moved, so look the key up on every shown day.
+  const liveItem = popover ? [...items.values()].flat().find((i) => i.key === popover.item.key)
+    ?? (popover.item.kind === "time" ? undefined
+      : [...items.values()].flat().find((i) => i.kind === popover.item.kind && i.id === popover.item.id)) : undefined;
   useEffect(() => {
     if (popover && !liveItem) setPopover(null);
   }, [popover, liveItem]);
@@ -218,7 +220,7 @@ function removeItem(item: CalItem) {
     if (ev) deleteEvent(ev);
   } else if (item.kind === "time") {
     const tb = s.timeBlocks.find((b) => b.id === item.id);
-    if (tb) deleteTimeBlock(tb);
+    if (tb) deleteRoutineAt(tb, item.occurrence ?? item.date);
   } else {
     const b = s.taskBlocks.find((x) => x.id === item.id);
     if (b) deleteTaskBlock(b, item.title);

@@ -3,6 +3,7 @@ import { Task, TaskBlock, Project } from "../api";
 import { TaskCheck } from "./primitives";
 import { Icon } from "./Icon";
 import { toggleTaskDone } from "../store";
+import { repeatLabel } from "../lib/derive";
 import { fmtDuration, fmtTime, minutesOfIso, relDay, todayIso } from "../dates";
 
 // One task in a list. Clicking opens it; the checkbox completes it.
@@ -44,6 +45,9 @@ export const TaskRow = memo(function TaskRow({
             <span className={"meta" + (overdue ? " danger" : task.deadline === today ? " warn" : "")}>
               <Icon name="flag" size={12} />{relDay(task.deadline)}
             </span>
+          )}
+          {task.repeat_every && task.repeat_unit && (
+            <span className="meta" title={repeatLabel(task.repeat_every, task.repeat_unit)}><Icon name="repeat" size={12} /></span>
           )}
           {task.duration_minutes && <span className="meta"><Icon name="clock" size={12} />{fmtDuration(task.duration_minutes)}</span>}
           {task.notes && <span className="meta" title="Has notes"><Icon name="list" size={12} /></span>}

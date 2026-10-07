@@ -1,5 +1,5 @@
 // Pure functions that turn store data into what the screens show.
-import { CalEvent, Habit, HabitLog, Project, Task, TaskBlock, TimeBlock } from "../api";
+import { CalEvent, Habit, HabitLog, Project, RepeatUnit, Task, TaskBlock, TimeBlock, TimeBlockException } from "../api";
 import {
   addDays, addDaysIso, backendWeekday, isoDate, minutesOfIso, minutesOfTime, parseDate, todayIso, weekStartOf,
 } from "../dates";
@@ -19,14 +19,72 @@ export type CalItem = {
   done?: boolean;
   priority?: number;
   location?: string;
+  occurrence?: string; // routines: the date the routine put this occurrence on (before any move)
+  moved?: boolean;     // routines: this occurrence was moved or retimed on its own
 };
 
 export const TASK_COLOR = "#7c8597";
 
+// ---------- Routines ----------
+// These mirror backend/app/recurrence.py.
+
+export function firstOccurrence(tb: TimeBlock): string {
+  const start = parseDate(tb.start_date);
+  return addDaysIso(tb.start_date, (tb.weekday - backendWeekday(start) + 7) % 7);
+}
+
+// True when the routine's rule (ignoring one-off changes) puts an occurrence on `day`.
+export function isOccurrence(tb: TimeBlock, day: string): boolean {
+  if (backendWeekday(parseDate(day)) !== tb.weekday || day < tb.start_date) return false;
+  if (tb.until_date && day > tb.until_date) return false;
+  const days = Math.round((parseDate(day).getTime() - parseDate(firstOccurrence(tb)).getTime()) / 86_400_000);
+  return Math.floor(days / 7) % Math.max(1, tb.interval_weeks || 1) === 0;
+}
+
+export function exceptionsIndex(list: TimeBlockException[]): Map<number, Map<string, TimeBlockException>> {
+  const out = new Map<number, Map<string, TimeBlockException>>();
+  for (const x of list) {
+    const m = out.get(x.time_block_id) ?? new Map<string, TimeBlockException>();
+    m.set(x.on_date, x);
+    out.set(x.time_block_id, m);
+  }
+  return out;
+}
+
+// ---------- Repeating tasks ----------
+// Mirrors next_deadline in backend/app/recurrence.py.
+
+function addUnits(iso: string, unit: RepeatUnit, n: number): string {
+  if (unit === "day") return addDaysIso(iso, n);
+  if (unit === "week") return addDaysIso(iso, n * 7);
+  const d = parseDate(iso);
+  const months = unit === "month" ? n : n * 12;
+  const target = new Date(d.getFullYear(), d.getMonth() + months, 1);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(d.getDate(), lastDay));
+  return isoDate(target);
+}
+
+export function nextDeadline(current: string | null, every: number, unit: RepeatUnit, today = todayIso()): string {
+  const anchor = current ?? today;
+  let n = 1;
+  let next = addUnits(anchor, unit, every);
+  while (next <= today) next = addUnits(anchor, unit, every * ++n);
+  return next;
+}
+
+export function repeatLabel(every: number, unit: RepeatUnit): string {
+  if (every === 1) return { day: "Daily", week: "Weekly", month: "Monthly", year: "Yearly" }[unit];
+  return `Every ${every} ${unit}s`;
+}
+
 // Every occurrence on each date in [from, to] (inclusive), keyed by date.
 export function expandRange(
   from: string, to: string,
-  data: { events: CalEvent[]; timeBlocks: TimeBlock[]; taskBlocks: TaskBlock[]; tasks: Task[]; projects: Project[] },
+  data: {
+    events: CalEvent[]; timeBlocks: TimeBlock[]; timeBlockExceptions?: TimeBlockException[];
+    taskBlocks: TaskBlock[]; tasks: Task[]; projects: Project[];
+  },
 ): Map<string, CalItem[]> {
   const out = new Map<string, CalItem[]>();
   const days: string[] = [];
@@ -37,14 +95,25 @@ export function expandRange(
   }
   const push = (item: CalItem) => out.get(item.date)?.push(item);
 
-  for (const day of days) {
-    const wd = backendWeekday(parseDate(day));
-    for (const tb of data.timeBlocks) {
-      if (tb.weekday !== wd || day < tb.start_date || (tb.until_date && day > tb.until_date)) continue;
+  const changes = exceptionsIndex(data.timeBlockExceptions ?? []);
+  for (const tb of data.timeBlocks) {
+    const own = changes.get(tb.id);
+    for (const day of days) {
+      if (own?.has(day) || !isOccurrence(tb, day)) continue;
       push({
         key: `time-${tb.id}-${day}`, kind: "time", id: tb.id, date: day,
         start: minutesOfTime(tb.start_time), end: minutesOfTime(tb.end_time),
-        title: tb.title, color: tb.color,
+        title: tb.title, color: tb.color, occurrence: day,
+      });
+    }
+    // Moved occurrences can land in range even when their original date is outside it.
+    for (const x of own?.values() ?? []) {
+      const where = x.new_date ?? x.on_date;
+      if (x.skipped || where < from || where > to || !isOccurrence(tb, x.on_date)) continue;
+      push({
+        key: `time-${tb.id}-${x.on_date}`, kind: "time", id: tb.id, date: where,
+        start: minutesOfTime(x.start_time ?? tb.start_time), end: minutesOfTime(x.end_time ?? tb.end_time),
+        title: tb.title, color: tb.color, occurrence: x.on_date, moved: true,
       });
     }
   }

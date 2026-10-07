@@ -1306,6 +1306,11 @@ select.btn { padding-right: 26px; min-height: 0; }
   .ev-resize::after { opacity: 0.4; }
   .gap-add { opacity: 1; }
 }
+
+/* iOS zooms into any field under 16px on focus and stays zoomed after the sheet closes. */
+@media (hover: none) and (pointer: coarse) {
+  :is(input, select, textarea):not(.qa-input):not(.title-input) { font-size: 16px; }
+}
 .app-version { color: var(--text-3); font-size: 11px; align-self: center; }
 .collapsed .brand .app-version { display: none; }
 .keys-block { padding: 12px 0; border-top: 1px solid var(--border); }

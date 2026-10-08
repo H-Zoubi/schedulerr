@@ -2,9 +2,9 @@ import { useMemo, useState } from "react";
 import { Dialog, Kbd, Segmented } from "./primitives";
 import { Icon } from "./Icon";
 import { closeQuickAdd, openTask, QuickAddMode, QuickAddPrefill } from "../lib/ui";
-import { matchProject, parseQuickAdd } from "../lib/nlp";
+import { matchProject, parseQuickAdd, parseSpending } from "../lib/nlp";
 import { repeatLabel } from "../lib/derive";
-import { createEvent, createTask, createTimeBlock, currentId, scheduleTask, useData } from "../store";
+import { createEvent, createSpending, createTask, createTimeBlock, currentId, money, scheduleTask, useData } from "../store";
 import { atMinutes, backendWeekday, fmtDuration, fmtRange, parseDate, relDay, todayIso, timeString } from "../dates";
 import { navigate } from "../lib/router";
 import { toast } from "../lib/toast";
@@ -13,6 +13,7 @@ const MODES: { value: QuickAddMode; label: string }[] = [
   { value: "task", label: "Task" },
   { value: "event", label: "Event" },
   { value: "routine", label: "Routine" },
+  { value: "spend", label: "Spend" },
 ];
 
 const WEEKDAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -33,6 +34,7 @@ export function QuickAdd({ prefill }: { prefill: QuickAddPrefill }) {
 
   const parsed = useMemo(() => parseQuickAdd(text), [text]);
   const effectiveMode: QuickAddMode = !manualMode && parsed.weekdays ? "routine" : mode;
+  const spend = useMemo(() => effectiveMode === "spend" ? parseSpending(text) : null, [text, effectiveMode]);
   const matched = matchProject(parsed.project, projects);
   const project = matched ?? projects.find((p) => p.id === projectId) ?? null;
   const projectMissing = parsed.project && !matched;
@@ -51,6 +53,21 @@ export function QuickAdd({ prefill }: { prefill: QuickAddPrefill }) {
     ?? (parsed.repeat ? todayIso() : null);
 
   function submit(keepOpen: boolean) {
+    if (effectiveMode === "spend") {
+      if (!spend?.amount_cents) return;
+      const sday = spend.date ?? prefill.date ?? todayIso();
+      createSpending({ amount_cents: spend.amount_cents, note: spend.note, tag: spend.tag, spent_on: sday });
+      if (!keepOpen) toast(`Logged ${money(spend.amount_cents)}${spend.note ? ` — ${spend.note}` : ""}`, {
+        action: { label: "View", run: () => navigate({ name: "money" }) },
+      });
+      if (keepOpen) {
+        setText("");
+        setAdded((n) => n + 1);
+      } else {
+        closeQuickAdd();
+      }
+      return;
+    }
     if (!title) return;
     if (effectiveMode === "task") {
       const sameBoardColumn = prefill.columnId && (project?.id ?? null) === (prefill.projectId ?? null) ? prefill.columnId : null;
@@ -93,7 +110,12 @@ export function QuickAdd({ prefill }: { prefill: QuickAddPrefill }) {
   }
 
   const chips: { icon: Parameters<typeof Icon>[0]["name"]; label: string; tone?: string }[] = [];
-  if (effectiveMode === "task") {
+  if (effectiveMode === "spend") {
+    if (spend?.amount_cents) chips.push({ icon: "wallet", label: money(spend.amount_cents) });
+    else chips.push({ icon: "wallet", label: "Add an amount like 4.5", tone: "warn" });
+    if (spend?.tag) chips.push({ icon: "hash", label: spend.tag });
+    if (spend?.date) chips.push({ icon: "calendar", label: relDay(spend.date) });
+  } else if (effectiveMode === "task") {
     if (project) chips.push({ icon: "hash", label: project.name });
     if (start !== undefined) chips.push({ icon: "calendar", label: `${relDay(date)} · ${fmtRange(start, start + (duration ?? 60))}` });
     const deadline = taskDeadline;
@@ -113,7 +135,8 @@ export function QuickAdd({ prefill }: { prefill: QuickAddPrefill }) {
 
   const placeholder = effectiveMode === "task"
     ? "Write report #thesis !1 due fri"
-    : effectiveMode === "event" ? "Dentist tomorrow 3pm for 45m" : "Gym every mon, wed 7-8am";
+    : effectiveMode === "event" ? "Dentist tomorrow 3pm for 45m"
+    : effectiveMode === "spend" ? "Coffee 4.5 #cafe" : "Gym every mon, wed 7-8am";
 
   return (
     <Dialog onClose={closeQuickAdd} label="Quick add" className="quick-add">
@@ -137,7 +160,7 @@ export function QuickAdd({ prefill }: { prefill: QuickAddPrefill }) {
           {projectMissing && <span className="chip-static warn">No board named “{parsed.project}”</span>}
         </div>
         <div className="qa-foot">
-          {effectiveMode !== "routine" && (
+          {effectiveMode !== "routine" && effectiveMode !== "spend" && (
             <label className="qa-board">
               <Icon name="board" size={14} />
               <select value={project?.id ?? ""} disabled={Boolean(matched)}
@@ -150,7 +173,7 @@ export function QuickAdd({ prefill }: { prefill: QuickAddPrefill }) {
           <span className="qa-hint muted">
             <Kbd>↵</Kbd> add · <Kbd>⇧↵</Kbd> add another
           </span>
-          <button className="btn primary" disabled={!title}>Add {effectiveMode}</button>
+          <button className="btn primary" disabled={effectiveMode === "spend" ? !spend?.amount_cents : !title}>Add {effectiveMode}</button>
         </div>
       </form>
     </Dialog>

@@ -10,6 +10,7 @@ import { ApiKeys } from "./ApiKeys";
 import { DataSettings } from "./DataSettings";
 
 const HOURS = Array.from({ length: 25 }, (_, h) => h * 60);
+const CURRENCY_OPTIONS = ["$", "€", "£", "JD", "₪", "¥", "₹"];
 
 export function Settings({ user, onLogout }: { user: User; onLogout: () => void }) {
   const p = usePrefs();
@@ -94,6 +95,14 @@ export function Settings({ user, onLogout }: { user: User; onLogout: () => void 
           <Segmented label="Density" value={p.hourHeight <= 40 ? "compact" : p.hourHeight >= 72 ? "roomy" : "normal"}
             onChange={(v) => setPref("hourHeight", v === "compact" ? 36 : v === "roomy" ? 80 : 52)}
             options={[{ value: "compact", label: "Compact" }, { value: "normal", label: "Normal" }, { value: "roomy", label: "Roomy" }]} />
+        </Row>
+        <Row label="Currency" hint="Symbol shown next to spending amounts, e.g. $ or JD. Leave empty for plain numbers.">
+          <select value={CURRENCY_OPTIONS.includes(p.currency) ? p.currency : p.currency ? "__custom" : ""}
+            onChange={(e) => setPref("currency", e.target.value === "__custom" ? "" : e.target.value)} aria-label="Currency">
+            <option value="">None</option>
+            {CURRENCY_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+            {p.currency && !CURRENCY_OPTIONS.includes(p.currency) && <option value="__custom">{p.currency} (custom)</option>}
+          </select>
         </Row>
       </section>
 

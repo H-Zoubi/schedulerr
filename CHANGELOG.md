@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added spending log: quick-add spend mode, Money page with monthly totals and tag breakdown, full backend CRUD with export/import support.
 - Change, move or skip a single occurrence of a routine, or change it from one occurrence onward.
   Dragging or deleting a routine asks which occurrences you mean.
 - Routines can repeat every 2, 3 or 4 weeks.

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session as DBSession
 from .auth import api_user
 from .db import get_db
 from .models import (
-    Column, Event, Habit, HabitLog, Project, Reminder, Task, TaskBlock, TimeBlock, TimeBlockException, User,
+    Column, Event, Habit, HabitLog, Project, Reminder, Spending, Task, TaskBlock, TimeBlock, TimeBlockException, User,
 )
 from . import notifications
 from .recurrence import exceptions_by_block, expand, is_occurrence, next_deadline
@@ -867,3 +867,82 @@ def set_reminder(kind: str, target_id: int, body: ReminderIn, db: DBSession = De
     existing.minutes_before = body.minutes_before
     db.commit()
     return ReminderOut(kind=kind, target_id=target_id, minutes_before=existing.minutes_before)
+
+
+# ---------- Spendings ----------
+
+class SpendingIn(BaseModel):
+    amount_cents: int = Field(ge=1, le=10_000_000)
+    note: str = Field(default="", max_length=300)
+    tag: str = Field(default="", max_length=50)
+    spent_on: date | None = None
+
+    @model_validator(mode="after")
+    def _strip(self):
+        self.note = self.note.strip()
+        self.tag = self.tag.strip()
+        return self
+
+
+class SpendingPatch(BaseModel):
+    amount_cents: int | None = Field(default=None, ge=1, le=10_000_000)
+    note: str | None = Field(default=None, max_length=300)
+    tag: str | None = Field(default=None, max_length=50)
+    spent_on: date | None = None
+
+    @model_validator(mode="after")
+    def _strip(self):
+        if self.note is not None:
+            self.note = self.note.strip()
+        if self.tag is not None:
+            self.tag = self.tag.strip()
+        return self
+
+
+class SpendingOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    amount_cents: int
+    note: str
+    tag: str
+    spent_on: date
+    created_at: datetime
+
+
+@router.get("/spendings", response_model=list[SpendingOut])
+def list_spendings(start: date | None = None, end: date | None = None, db: DBSession = Depends(get_db)):
+    query = db.query(Spending)
+    if start is not None:
+        query = query.filter(Spending.spent_on >= start)
+    if end is not None:
+        query = query.filter(Spending.spent_on <= end)
+    return query.order_by(Spending.spent_on.desc(), Spending.created_at.desc(), Spending.id.desc()).all()
+
+
+@router.post("/spendings", response_model=SpendingOut, status_code=201)
+def create_spending(body: SpendingIn, db: DBSession = Depends(get_db)):
+    item = Spending(
+        amount_cents=body.amount_cents,
+        note=body.note,
+        tag=body.tag,
+        spent_on=body.spent_on or date.today(),
+        created_at=datetime.now().astimezone(),
+    )
+    db.add(item)
+    db.commit()
+    return item
+
+
+@router.patch("/spendings/{item_id}", response_model=SpendingOut)
+def update_spending(item_id: int, body: SpendingPatch, db: DBSession = Depends(get_db)):
+    item = _get_or_404(db, Spending, item_id)
+    _apply(item, body.model_dump(exclude_unset=True))
+    db.commit()
+    return item
+
+
+@router.delete("/spendings/{item_id}", status_code=204)
+def delete_spending(item_id: int, db: DBSession = Depends(get_db)):
+    db.delete(_get_or_404(db, Spending, item_id))
+    db.commit()
+    return Response(status_code=204)

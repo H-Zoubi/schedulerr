@@ -19,6 +19,7 @@ export type Prefs = {
   calSidebar: boolean;
   showCompleted: boolean;
   routinesDraggable: boolean; // routines (recurring blocks) are locked in place unless this is on
+  currency: string;           // symbol or code shown next to amounts, empty = none
   v: number;                  // preferences format version
 };
 
@@ -58,6 +59,7 @@ const DEFAULTS: Prefs = {
   calSidebar: true,
   showCompleted: false,
   routinesDraggable: false,
+  currency: "",
   v: 2,
 };
 

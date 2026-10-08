@@ -186,3 +186,13 @@ class ReminderSent(Base):
     )
     occurrence_start: Mapped[datetime] = mapped_column(DateTime, primary_key=True)
     sent_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class Spending(Base):
+    __tablename__ = "spendings"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    amount_cents: Mapped[int] = mapped_column(Integer)   # positive, minor units
+    note: Mapped[str] = mapped_column(String(300), default="")
+    tag: Mapped[str] = mapped_column(String(50), default="")
+    spent_on: Mapped[date] = mapped_column(Date)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

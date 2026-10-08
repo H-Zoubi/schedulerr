@@ -2,7 +2,7 @@ import { createStore } from "./createStore";
 
 // Global overlays: the task drawer, quick add, the command palette and the shortcuts sheet.
 
-export type QuickAddMode = "task" | "event" | "routine";
+export type QuickAddMode = "task" | "event" | "routine" | "spend";
 
 export type QuickAddPrefill = {
   mode?: QuickAddMode;

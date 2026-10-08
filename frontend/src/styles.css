@@ -1348,3 +1348,16 @@ select.btn { padding-right: 26px; min-height: 0; }
 .keys-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px; }
 .keys-secret { font-family: monospace; margin-top: 6px; width: 100%; }
 .keys-info { flex: 1; min-width: 180px; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+
+/* ---------- Money ---------- */
+.money-page { max-width: 640px; margin: 0 auto; padding-bottom: 96px; }
+.money-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.money-total { font-size: 34px; font-weight: 650; margin: 2px 0 2px; letter-spacing: -0.5px; }
+.money-currency-hint { margin: -4px 0 10px; }
+.money-list { display: flex; flex-direction: column; gap: 18px; }
+.money-day-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; font-weight: 600; color: var(--text-2); margin: 0 0 6px; }
+.money-day-total { font-variant-numeric: tabular-nums; color: var(--text-3); }
+.money-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
+.money-note { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; overflow: hidden; }
+.money-note > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.money-amount { font-variant-numeric: tabular-nums; font-weight: 600; }

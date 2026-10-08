@@ -11,6 +11,7 @@ const SECTIONS: { title: string; items: [string[], string][] }[] = [
       [["⌘", "K"], "Search and commands"],
       [["C"], "New task"],
       [["E"], "New event"],
+      [["S"], "Log spending"],
       [["?"], "Show shortcuts"],
       [["["], "Toggle sidebar"],
     ],
@@ -120,6 +121,7 @@ export function useGlobalShortcuts() {
       if (key === "g") { gPressed = Date.now(); return; }
       if (key === "c" || key === "n") { e.preventDefault(); openQuickAdd({ mode: "task" }); return; }
       if (key === "e") { e.preventDefault(); openQuickAdd({ mode: "event" }); return; }
+      if (key === "s") { e.preventDefault(); openQuickAdd({ mode: "spend" }); return; }
       if (key === "/") { e.preventDefault(); setPalette(true); return; }
       if (e.key === "?") { e.preventDefault(); setShortcuts(true); return; }
       if (key === "[") { e.preventDefault(); setPref("sidebarCollapsed", !prefs.get().sidebarCollapsed); }

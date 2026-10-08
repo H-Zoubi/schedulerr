@@ -49,12 +49,14 @@ export function CommandPalette() {
       { id: "go-upcoming", group: "Go to", label: "Upcoming tasks", icon: "upcoming", hint: "G U", run: () => navigate({ name: "tasks", list: "upcoming" }) },
       { id: "go-board", group: "Go to", label: "Board", icon: "board", hint: "G B", run: () => navigate({ name: "board", id: null }) },
       { id: "go-habits", group: "Go to", label: "Habits", icon: "habits", hint: "G H", run: () => navigate({ name: "habits" }) },
+      { id: "go-money", group: "Go to", label: "Money", icon: "wallet", run: () => navigate({ name: "money" }) },
       { id: "go-settings", group: "Go to", label: "Settings", icon: "settings", hint: "G S", run: () => navigate({ name: "settings" }) },
     ];
     const create: Cmd[] = [
       { id: "new-task", group: "Create", label: "New task", icon: "plus", hint: "C", run: () => openQuickAdd({ mode: "task" }) },
       { id: "new-event", group: "Create", label: "New event", icon: "calendar", hint: "E", run: () => openQuickAdd({ mode: "event" }) },
       { id: "new-routine", group: "Create", label: "New routine", icon: "repeat", run: () => openQuickAdd({ mode: "routine" }) },
+      { id: "new-spend", group: "Create", label: "Log spending", icon: "wallet", hint: "S", run: () => openQuickAdd({ mode: "spend" }) },
     ];
     const prefsCmds: Cmd[] = [
       { id: "theme-light", group: "Preferences", label: "Theme: Light", icon: "sun", keywords: "appearance", run: () => setPref("theme", "light") },

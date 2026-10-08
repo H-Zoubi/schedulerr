@@ -231,3 +231,64 @@ export function matchProject<P extends { name: string }>(raw: string | undefined
   const q = norm(raw);
   return projects.find((p) => norm(p.name) === q) ?? projects.find((p) => norm(p.name).startsWith(q));
 }
+
+function parseAmountToken(tok: string): number | undefined {
+  const m = tok.toLowerCase().match(/^(\d{1,6})(?:[.,](\d{1,2}))?(?:\$|€|£|jd|jod|usd)?$/);
+  if (!m) return undefined;
+  const whole = Number(m[1]);
+  const frac = m[2] ? Number(m[2]) : 0;
+  const cents = Math.round(whole * 100 + frac * (m[2]?.length === 1 ? 10 : 1));
+  return cents > 0 ? cents : undefined;
+}
+
+export type ParsedSpending = {
+  note: string;
+  amount_cents?: number;
+  tag?: string;
+  date?: string; // optional day override, e.g. "coffee 4.5 fri"
+};
+
+// Quick spending line: takes the whole line apart. Amount and date are pulled out of
+// the text, '#tag' goes to the tag, everything left is the note.
+//
+//   "coffee 4.5 #cafe"      -> note Coffee, 4.50, tag cafe
+//   "4.50 lunch tomorrow"   -> 450 cents, dated tomorrow
+export function parseSpending(input: string, now = new Date()): ParsedSpending {
+  let text = ` ${input} `;
+  const out: ParsedSpending = { note: "" };
+  // Replace a match with spaces so later patterns can't reuse it.
+  const take = (re: RegExp, fn: (m: RegExpExecArray) => boolean | void) => {
+    const m = re.exec(text);
+    if (!m) return;
+    if (fn(m) === false) return;
+    text = text.slice(0, m.index) + " ".repeat(m[0].length) + text.slice(m.index + m[0].length);
+  };
+
+  // Tag: #name, like tasks.
+  take(/\s#([\p{L}\p{N}_-]+)(?=\s)/iu, (m) => {
+    out.tag = m[1];
+  });
+
+  // Date: "today", "tomorrow", "fri", "oct 12", "12/10" — same calendar as quick add.
+  take(new RegExp(`\\s(?:on\\s+)?(${DATE_RE})(?=\\s)`, "i"), (m) => {
+    const d = parseDatePhrase(m[1], now);
+    if (!d) return false;
+    out.date = d;
+  });
+
+  // Amount: a number with optional currency suffix, so "4.5", "4,50", "4.5jd", "12$".
+  // The comma case must have exactly 2 decimals so "4,500" is not read as 4.5.
+  const AMOUNT_RE = "(\\d{1,6}(?:\\.\\d{1,2}|,\\d{2})?)(\\$|€|£|jd|jod|usd)?";
+  take(new RegExp(`\\s${AMOUNT_RE}(?=\\s)`, "i"), (m) => {
+    const raw = m[1].replace(",", ".");
+    const cents = parseAmountToken(raw);
+    if (!cents) return false;
+    out.amount_cents = cents;
+  });
+
+  out.note = text
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^(at|on)\s+/i, "");
+  return out;
+}

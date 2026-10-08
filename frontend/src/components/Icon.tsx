@@ -46,6 +46,7 @@ const PATHS = {
   upcoming: <><rect x="3.5" y="5" width="17" height="15.5" rx="2.5" /><path d="M3.5 10h17M8.5 3v4M15.5 3v4M8 14.5h3M8 17h6" /></>,
   done: <><circle cx="12" cy="12" r="8.5" /><path d="m8.5 12.3 2.4 2.4 4.6-5" /></>,
   anytime: <><path d="M4.5 6h15M4.5 12h15M4.5 18h9" /></>,
+  wallet: <><rect x="3.5" y="6" width="17" height="13" rx="2.5" /><path d="M3.5 10.5h17" /><path d="M16 15h.5" /></>,
 };
 
 export type IconName = keyof typeof PATHS;

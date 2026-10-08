@@ -132,3 +132,12 @@ export type HabitLog = { habit_id: number; logged_on: string; count: number };
 
 export type ReminderKind = "event" | "task_block" | "time_block";
 export type Reminder = { kind: ReminderKind; target_id: number; minutes_before: number };
+
+export type Spending = {
+  id: number;
+  amount_cents: number; // positive, minor units
+  note: string;
+  tag: string;
+  spent_on: string; // "YYYY-MM-DD"
+  created_at: string;
+};

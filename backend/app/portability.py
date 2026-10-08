@@ -28,7 +28,7 @@ EXPORT_FORMAT = 1
 # Everything that belongs to the planner. Accounts, sessions and keys are deliberately left out.
 EXPORT_TABLES = [
     "projects", "columns", "tasks", "task_blocks", "time_blocks", "time_block_exceptions", "events",
-    "habits", "habit_logs", "reminders",
+    "habits", "habit_logs", "reminders", "spendings",
 ]
 
 FEED_SCOPE = "feed"

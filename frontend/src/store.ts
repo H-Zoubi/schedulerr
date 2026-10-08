@@ -10,12 +10,13 @@
 
 import {
   api, CalEvent, Column, del, Habit, HabitLog, patch, post, Project, put,
-  Reminder, ReminderKind, Task, TaskBlock, TimeBlock, TimeBlockException,
+  Reminder, ReminderKind, Spending, Task, TaskBlock, TimeBlock, TimeBlockException,
 } from "./api";
 import { createStore } from "./lib/createStore";
 import { toast, toastError } from "./lib/toast";
-import { addDays, addDaysIso, backendWeekday, fmtDayLong, isoDate, parseDate, timeString } from "./dates";
+import { addDays, addDaysIso, backendWeekday, fmtDayLong, isoDate, parseDate, timeString, todayIso } from "./dates";
 import { firstOccurrence, nextDeadline } from "./lib/derive";
+import { prefs } from "./lib/prefs";
 import { askScope } from "./lib/ui";
 
 export type Data = {
@@ -30,15 +31,16 @@ export type Data = {
   habits: Habit[];
   habitLogs: HabitLog[];
   reminders: Reminder[];
+  spendings: Spending[];
   pending: number; // requests in flight
 };
 
-type ListKey = "tasks" | "projects" | "columns" | "events" | "timeBlocks" | "taskBlocks" | "habits";
+type ListKey = "tasks" | "projects" | "columns" | "events" | "timeBlocks" | "taskBlocks" | "habits" | "spendings";
 type Item = { id: number };
 
 const EMPTY: Data = {
   ready: false, tasks: [], projects: [], columns: [], events: [], timeBlocks: [], timeBlockExceptions: [],
-  taskBlocks: [], habits: [], habitLogs: [], reminders: [], pending: 0,
+  taskBlocks: [], habits: [], habitLogs: [], reminders: [], spendings: [], pending: 0,
 };
 
 export const store = createStore<Data>(EMPTY);
@@ -227,7 +229,7 @@ export async function loadAll(): Promise<void> {
   const today = new Date();
   const histStart = isoDate(addDays(today, -7 * 26));
   const histEnd = isoDate(addDays(today, 7));
-  const [tasks, projects, events, timeBlocks, taskBlocks, habits, habitLogs, reminders, general, timeBlockExceptions] =
+  const [tasks, projects, events, timeBlocks, taskBlocks, habits, habitLogs, reminders, general, timeBlockExceptions, spendings] =
     await Promise.all([
       api<Task[]>("/api/tasks"),
       api<Project[]>("/api/projects"),
@@ -239,6 +241,7 @@ export async function loadAll(): Promise<void> {
       api<Reminder[]>("/api/reminders").catch(() => [] as Reminder[]),
       api<Column[]>("/api/columns"),
       api<TimeBlockException[]>("/api/time-block-exceptions"),
+      api<Spending[]>("/api/spendings"),
     ]);
   const projectCols = await Promise.all(projects.map((p) => api<Column[]>(`/api/columns?project_id=${p.id}`)));
   lastSync = Date.now();
@@ -247,6 +250,7 @@ export async function loadAll(): Promise<void> {
   store.set((s) => ({
     ...s, ready: true, tasks, projects, events, timeBlocks, timeBlockExceptions, taskBlocks, habits, habitLogs, reminders,
     columns: [...general, ...projectCols.flat()],
+    spendings,
   }));
 }
 
@@ -745,6 +749,46 @@ export function logHabit(habitId: number, day: string, delta: 1 | -1) {
       toastError(e, "Could not log the habit");
     }
   })();
+}
+
+// ---------- Spending ----------
+
+export type SpendingDraft = {
+  amount_cents: number;
+  note?: string;
+  tag?: string;
+  spent_on?: string;
+};
+
+export function createSpending(draft: SpendingDraft): Spending {
+  const body = {
+    note: draft.note ?? "",
+    tag: draft.tag ?? "",
+    spent_on: draft.spent_on ?? todayIso(),
+    amount_cents: draft.amount_cents,
+  };
+  return create("spendings", { ...body, id: 0, created_at: "" } as unknown as Spending,
+    () => post<Spending>("/api/spendings", body));
+}
+
+export function updateSpending(id: number, change: Partial<SpendingDraft>) {
+  return mutate("spendings", id, change, (rid) => patch<Spending>(`/api/spendings/${rid}`, change))
+    .catch(() => undefined);
+}
+
+export function deleteSpending(sp: Spending) {
+  deleteWithUndo(`Deleted “${sp.note || money(sp.amount_cents)}”`, {
+    key: `spending:${sp.id}`,
+    remove: () => removeLocal("spendings", (x) => x.id === sp.id),
+    commit: async () => del(`/api/spendings/${await realId(sp.id)}`),
+  });
+}
+
+// Format cents as money, with the user's currency symbol if one is set.
+export function money(cents: number): string {
+  const cur = prefs.get().currency.trim();
+  const base = `${Math.floor(Math.abs(cents) / 100)}.${String(Math.abs(cents) % 100).padStart(2, "0")}`;
+  return `${cents < 0 ? "-" : ""}${cur ? cur + (cur.length === 1 ? "" : " ") : ""}${base}`;
 }
 
 // ---------- Reminders ----------
